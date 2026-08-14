@@ -4,8 +4,6 @@ DeepSeek Harness（DSH）Web 插件：在对话里**划选任意文本 → 点�
 
 插件自动创建一条**同工作区的独立 DSH 会话**（命名 `❓追问·<主题>`），用**快速无思考模型**把主对话上下文压缩成小摘要后与引文一起注入，回答过程**完全不打断主对话**。追问会话在左侧边栏可见、可继续、可归档，并保持与主对话的从属关系（插件自维护映射）。
 
-- 形态 B（极薄消费插件）：**硬依赖 [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)**，不自建任何面板容器（portal/resize/折叠/持久化/设置卡片/i18n 外壳）。
-- 参考设计：Proma 的「划选 → 右侧问答」交互（只参考思路，代码全部原创，规避 AGPL 传染）。
 
 ## 前置依赖（必装）
 
@@ -24,8 +22,6 @@ dsh plugin --profile web add git+https://github.com/ChenRuoT/dsh-sidebar-qa.git
 # 或本地路径
 dsh plugin --profile web add <本仓库路径>
 ```
-
-> 仓库 slug、发布包名（`package.json#name`）、插件 id（`dsh.plugin.json#id`）统一为 `dsh-sidebar-qa`。
 
 重启 `dsh web`（host 半改动需要重启；client 改动浏览器硬刷新即可）。
 
