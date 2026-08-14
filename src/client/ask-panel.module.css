@@ -1,0 +1,192 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: #e6e6eb;
+  font-size: 13px;
+}
+
+/* Follow-up switcher (chips of this session's follow-ups). */
+.switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #2c2c36;
+}
+
+.switcherItem {
+  appearance: none;
+  border: 1px solid #2c2c36;
+  background: #16161d;
+  color: #c9c9d4;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcherActive {
+  border-color: #4c8dff;
+  color: #fff;
+  background: #2f4a7a;
+}
+
+.newAsk {
+  appearance: none;
+  border: 1px dashed #3a3a46;
+  background: transparent;
+  color: #9a9aa8;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+/* Scrollable transcript area. */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 10px;
+}
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.assistantRow {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.userContent {
+  max-width: 88%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+/* The quoted selection rendered as a markdown-style blockquote. */
+.quoteBlock {
+  margin: 0;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid #4c8dff;
+  color: #9a9aa8;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.questionText {
+  background: #2f4a7a;
+  color: #fff;
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Assistant output is rendered as raw markdown, like the main conversation. */
+.assistantMarkdown {
+  max-width: 100%;
+  color: #e6e6eb;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.startHint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quoteChip {
+  border: 1px solid #2c2c36;
+  background: #191922;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.quoteChipHead {
+  padding: 5px 10px;
+  background: #20202a;
+  font-size: 12px;
+  color: #9a9aa8;
+}
+
+.quoteChipText {
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.emptyHint {
+  color: #6a6a78;
+}
+
+/* Composer. */
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid #2c2c36;
+  align-items: flex-end;
+}
+
+.input {
+  flex: 1;
+  min-height: 40px;
+  max-height: 160px;
+  resize: vertical;
+  background: #16161d;
+  border: 1px solid #2c2c36;
+  border-radius: 8px;
+  color: #e6e6eb;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #4c8dff;
+}
+
+.send {
+  appearance: none;
+  border: 1px solid #4c8dff;
+  background: #2f4a7a;
+  color: #fff;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  flex: none;
+}
+
+.send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.error {
+  color: #f2a1a1;
+  font-size: 12px;
+  padding: 0 10px 8px;
+  white-space: pre-wrap;
+}

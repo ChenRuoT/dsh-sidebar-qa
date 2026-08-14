@@ -1,0 +1,23 @@
+.popover {
+  position: fixed;
+  z-index: 2147483000;
+  transform: translate(-50%, -100%);
+  pointer-events: auto;
+}
+
+.ask {
+  appearance: none;
+  border: 1px solid #4c8dff;
+  background: #1b1b22;
+  color: #e6e6eb;
+  font-size: 13px;
+  line-height: 1;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.ask:hover {
+  background: #23232c;
+}
