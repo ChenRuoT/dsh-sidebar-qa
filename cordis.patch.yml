@@ -1,16 +1,16 @@
-# dsh-side-qa bundle patch
+# dsh-sidebar-qa bundle patch
 #
 # `dsh.bundle.patch` layer of the published package: when installed through
 # the official CLI —
 #
-#   dsh plugin --profile <name> add git+https://github.com/<owner>/dsh-side-qa.git
+#   dsh plugin --profile <name> add git+https://github.com/ChenRuoT/dsh-sidebar-qa.git
 #
 # — the command appends this single `insert` (one plugin row) to the bundle
 # stack, exactly like a manual cordis.patch.yml mount line. No profile edits.
 #
-# dsh-side-qa requires dsh-better-sidebar as a hard peer dependency: the
+# dsh-sidebar-qa requires dsh-better-sidebar as a hard peer dependency: the
 # client half declares `inject = ['betterSidebar', ...]`, so it stays
 # inactive (no UI, no behavior) until better-sidebar provides the service.
 - insert:
-    - id: side-qa
-      name: 'dsh-side-qa'
+    - id: sidebar-qa
+      name: 'dsh-sidebar-qa'

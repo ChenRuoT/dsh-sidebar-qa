@@ -6,10 +6,10 @@
  * in-flight chunk deltas of the running answer. Pure helpers here are
  * unit-testable without a runtime.
  */
-import type { SideqaHistoryEntry, SideqaSessionEvent } from '../context-types.ts'
+import type { SidebarqaHistoryEntry, SidebarqaSessionEvent } from '../context-types.ts'
 
 /** Extract the text blocks of an assistant/message event (reasoning excluded). */
-export function textOfAssistantMessage(event: SideqaSessionEvent): string {
+export function textOfAssistantMessage(event: SidebarqaSessionEvent): string {
   if (event.type !== 'assistant/message') return ''
   const data = event.data as { message?: { content?: unknown } }
   const content = data.message?.content
@@ -24,7 +24,7 @@ export function textOfAssistantMessage(event: SideqaSessionEvent): string {
 }
 
 /** Extract the text blocks of a user/message event. */
-export function textOfUserMessage(event: SideqaSessionEvent): string {
+export function textOfUserMessage(event: SidebarqaSessionEvent): string {
   if (event.type !== 'user/message') return ''
   const data = event.data as { content?: unknown; source?: { kind?: unknown } }
   const kind = data.source?.kind
@@ -45,7 +45,7 @@ export function textOfUserMessage(event: SideqaSessionEvent): string {
 }
 
 /** Whether one event is a text-delta chunk (in-flight answer token). */
-function chunkText(event: SideqaSessionEvent): string {
+function chunkText(event: SidebarqaSessionEvent): string {
   if (event.type !== 'assistant/chunk') return ''
   const data = event.data as { chunk?: { type?: unknown; text?: unknown } }
   if (data.chunk?.type === 'text-delta' && typeof data.chunk.text === 'string') return data.chunk.text
@@ -63,7 +63,7 @@ export interface TranscriptMessage {
  * to the in-flight answer (seq past the last settled assistant message) are
  * appended as a trailing assistant message marked with `streaming`.
  */
-export function transcriptOf(events: readonly SideqaHistoryEntry[]): TranscriptMessage[] {
+export function transcriptOf(events: readonly SidebarqaHistoryEntry[]): TranscriptMessage[] {
   const messages: TranscriptMessage[] = []
   let lastAssistantSeq = -1
 
@@ -97,7 +97,7 @@ export function transcriptOf(events: readonly SideqaHistoryEntry[]): TranscriptM
  * message (in order) plus the in-flight chunk deltas that follow the last
  * settled message. (Legacy single-string form; transcriptOf is preferred.)
  */
-export function answerTextOf(events: readonly SideqaHistoryEntry[]): string {
+export function answerTextOf(events: readonly SidebarqaHistoryEntry[]): string {
   return transcriptOf(events)
     .filter(message => message.role === 'assistant')
     .map(message => message.text)
@@ -106,6 +106,6 @@ export function answerTextOf(events: readonly SideqaHistoryEntry[]): string {
 }
 
 /** Whether the history feed contains a finished answering turn. */
-export function hasTurnEnded(events: readonly SideqaHistoryEntry[]): boolean {
+export function hasTurnEnded(events: readonly SidebarqaHistoryEntry[]): boolean {
   return events.some(entry => entry.event.type === 'turn/end')
 }

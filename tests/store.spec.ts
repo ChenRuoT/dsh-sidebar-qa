@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createSideqaStore } from '../src/client/store.ts'
+import { createSidebarqaStore } from '../src/client/store.ts'
 
-describe('createSideqaStore', () => {
+describe('createSidebarqaStore', () => {
   it('tracks parent→child mapping and its reverse index', () => {
-    const store = createSideqaStore()
+    const store = createSidebarqaStore()
     store.addChild('main1', 'side1')
     store.addChild('main1', 'side2')
     expect(store.childrenOf('main1')).toEqual(['side1', 'side2'])
@@ -12,7 +12,7 @@ describe('createSideqaStore', () => {
   })
 
   it('dedupes repeated child ids and refuses self-parenting', () => {
-    const store = createSideqaStore()
+    const store = createSidebarqaStore()
     store.addChild('main1', 'side1')
     store.addChild('main1', 'side1')
     store.addChild('x', 'x')
@@ -21,7 +21,7 @@ describe('createSideqaStore', () => {
   })
 
   it('supports nested follow-ups and resolves roots', () => {
-    const store = createSideqaStore()
+    const store = createSidebarqaStore()
     store.addChild('main1', 'side1')
     store.addChild('side1', 'side2') // nested
     expect(store.isSideSession('side1')).toBe(true)
@@ -33,7 +33,7 @@ describe('createSideqaStore', () => {
   })
 
   it('stores and clears pending quotes per session', () => {
-    const store = createSideqaStore()
+    const store = createSidebarqaStore()
     store.setPendingQuote('s1', { text: 'q' })
     expect(store.getSnapshot().pendingBySession.s1).toEqual({ text: 'q' })
     store.setPendingQuote('s1', null)
@@ -41,7 +41,7 @@ describe('createSideqaStore', () => {
   })
 
   it('returns a stable snapshot reference between mutations (useSyncExternalStore contract)', () => {
-    const store = createSideqaStore()
+    const store = createSidebarqaStore()
     const before = store.getSnapshot()
     expect(store.getSnapshot()).toBe(before) // no fresh object per read
     store.addChild('main1', 'side1')

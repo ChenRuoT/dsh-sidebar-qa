@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { SideqaHistoryEntry } from '../src/context-types.ts'
+import type { SidebarqaHistoryEntry } from '../src/context-types.ts'
 import { answerTextOf, hasTurnEnded, textOfAssistantMessage, textOfUserMessage, transcriptOf } from '../src/client/answer.ts'
 
-function entry(type: string, data: Record<string, unknown>, seq = 0): SideqaHistoryEntry {
+function entry(type: string, data: Record<string, unknown>, seq = 0): SidebarqaHistoryEntry {
   return { event: { type, seq, time: 0, data } }
 }
 

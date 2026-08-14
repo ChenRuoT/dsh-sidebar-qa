@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SideqaSurfaceEvent } from '../src/context-types.ts'
+import type { SidebarqaSurfaceEvent } from '../src/context-types.ts'
 import {
   assembleText,
   composeSummary,
@@ -10,7 +10,7 @@ import {
   textOfEvent,
 } from '../src/summarize.ts'
 
-function event(type: string, data: Record<string, unknown>, seq = 0): SideqaSurfaceEvent {
+function event(type: string, data: Record<string, unknown>, seq = 0): SidebarqaSurfaceEvent {
   return { type, seq, time: 0, data }
 }
 

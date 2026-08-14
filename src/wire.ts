@@ -1,13 +1,13 @@
 /**
- * Wire helpers for the /sideqa JSON API: bounded body reading, response
+ * Wire helpers for the /sidebarqa JSON API: bounded body reading, response
  * writing, and the shared error envelope. Every API method returns
  * `{ok: true, value}` on success and `{ok: false, error: {code, message}}`
  * (HTTP 4xx/5xx matching the code) on failure.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-/** Machine-readable error codes of the sideqa API. */
-export type SideqaErrorCode =
+/** Machine-readable error codes of the sidebarqa API. */
+export type SidebarqaErrorCode =
   | 'bad-request'
   | 'not-found'
   | 'forbidden'
@@ -15,9 +15,9 @@ export type SideqaErrorCode =
   | 'internal'
 
 /** One API failure with its wire code and HTTP status. */
-export class SideqaError extends Error {
+export class SidebarqaError extends Error {
   constructor(
-    readonly code: SideqaErrorCode,
+    readonly code: SidebarqaErrorCode,
     message: string,
     readonly status = 400,
   ) {
@@ -36,7 +36,7 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
     const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
     total += buffer.length
     if (total > MAX_BODY_BYTES) {
-      throw new SideqaError('bad-request', 'request body too large')
+      throw new SidebarqaError('bad-request', 'request body too large')
     }
     chunks.push(buffer)
   }
@@ -45,7 +45,7 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    throw new SideqaError('bad-request', 'request body is not valid JSON')
+    throw new SidebarqaError('bad-request', 'request body is not valid JSON')
   }
 }
 
@@ -63,7 +63,7 @@ export function writeOk(res: ServerResponse, value: unknown): void {
 
 /** Write the failure envelope for any thrown value (unknown → internal 500). */
 export function writeError(res: ServerResponse, error: unknown): void {
-  if (error instanceof SideqaError) {
+  if (error instanceof SidebarqaError) {
     writeJson(res, error.status, { ok: false, error: { code: error.code, message: error.message } })
     return
   }
@@ -76,7 +76,7 @@ export function requireString(payload: unknown, key: string): string {
   const record = payload as Record<string, unknown> | null
   const value = record?.[key]
   if (typeof value !== 'string' || value === '') {
-    throw new SideqaError('bad-request', `missing or invalid "${key}"`)
+    throw new SidebarqaError('bad-request', `missing or invalid "${key}"`)
   }
   return value
 }

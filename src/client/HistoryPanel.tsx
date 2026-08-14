@@ -1,16 +1,16 @@
 /**
- * The `dsh-side-qa:history` tab: every follow-up session grouped by its ROOT
+ * The `dsh-sidebar-qa:history` tab: every follow-up session grouped by its ROOT
  * (main) session, rendered as a layered tree (main → follow-up → nested
  * follow-up). Clicking a node jumps into it. The tree is driven by the
  * plugin's self-maintained parent→children mapping.
  */
 import { useSyncExternalStore } from 'react'
-import type { Context, SideqaTabComponentProps } from '../context-types.ts'
-import type { SideqaStore } from './store.ts'
+import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
+import type { SidebarqaStore } from './store.ts'
 import css from './history-panel.module.css'
 
-interface HistoryPanelProps extends SideqaTabComponentProps {
-  store: SideqaStore
+interface HistoryPanelProps extends SidebarqaTabComponentProps {
+  store: SidebarqaStore
 }
 
 export function HistoryPanel({ ctx, store }: HistoryPanelProps) {

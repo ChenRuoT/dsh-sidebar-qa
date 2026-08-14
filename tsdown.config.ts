@@ -1,14 +1,14 @@
 /**
- * tsdown build for dsh-side-qa: the host-half ESM bundle (lib/index.js) plus
+ * tsdown build for dsh-sidebar-qa: the host-half ESM bundle (lib/index.js) plus
  * the two browser client bundles (lib/client.js and lib/client-registry.js,
  * CJS closure factory) — one per install channel:
  *
  * - `lib/client.js` serves the official profile channel, registering with
- *   the package-name id `dsh-side-qa` (the client-modules compose keys on the
+ *   the package-name id `dsh-sidebar-qa` (the client-modules compose keys on the
  *   package name; keep it in sync with package.json `name`),
  * - `lib/client-registry.js` serves the plugin-registry channel
  *   (dsh.plugin.json), registering with the manifest id
- *   `dsh-external/dsh-side-qa`.
+ *   `dsh-external/dsh-sidebar-qa`.
  *
  * The client bundle only depends on the shared platform module table entries
  * (react, react-dom, cordis) — everything else is inlined or provided at
@@ -185,7 +185,7 @@ export default [
     noExternal: ['schemastery'],
   },
   // Official profile channel: bundle id = package name (package.json `name`).
-  clientBundle('dsh-side-qa', 'client.js'),
+  clientBundle('dsh-sidebar-qa', 'client.js'),
   // Plugin-registry channel: bundle id = manifest id (dsh.plugin.json `id`).
-  clientBundle('dsh-external/dsh-side-qa', 'client-registry.js'),
+  clientBundle('dsh-external/dsh-sidebar-qa', 'client-registry.js'),
 ] satisfies UserConfig[]

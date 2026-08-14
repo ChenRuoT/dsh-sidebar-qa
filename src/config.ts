@@ -1,16 +1,16 @@
 /**
  * Configuration for the host summarize service and the side-session answer
  * model. The user-facing knobs live in the DSH settings service under the
- * `sideqa` namespace (schemastery schema); deployments without a settings
- * service fall back to {@link SIDEQA_DEFAULTS}.
+ * `sidebarqa` namespace (schemastery schema); deployments without a settings
+ * service fall back to {@link SIDEBARQA_DEFAULTS}.
  */
 import z from 'schemastery'
 
 /** Settings namespace id. */
-export const SIDEQA_SETTINGS_NS = 'sideqa'
+export const SIDEBARQA_SETTINGS_NS = 'sidebarqa'
 
 /** User-editable configuration. */
-export interface SideqaConfig {
+export interface SidebarqaConfig {
   // ── Summarize (fast no-thinking compression) ─────────────────────────────
   /** Registered provider route for the fast model; '' = inherit the main session's provider. */
   summarizeProvider: string
@@ -35,7 +35,7 @@ export interface SideqaConfig {
 }
 
 /** Schema-backed defaults (also used when the settings service is absent). */
-export const SIDEQA_DEFAULTS: SideqaConfig = {
+export const SIDEBARQA_DEFAULTS: SidebarqaConfig = {
   summarizeProvider: '',
   summarizeModel: 'deepseek-v4-flash',
   summarizeReasoningEffort: 'off',
@@ -47,15 +47,15 @@ export const SIDEQA_DEFAULTS: SideqaConfig = {
   answerReasoningEffort: 'off',
 }
 
-/** Schemastery schema for the `sideqa` settings namespace. */
-export const SideqaPrefsSchema = z.object({
-  summarizeProvider: z.string().default(SIDEQA_DEFAULTS.summarizeProvider),
-  summarizeModel: z.string().default(SIDEQA_DEFAULTS.summarizeModel),
-  summarizeReasoningEffort: z.string().default(SIDEQA_DEFAULTS.summarizeReasoningEffort),
-  summarizeBudgetTokens: z.number().step(1).min(64).max(8192).default(SIDEQA_DEFAULTS.summarizeBudgetTokens),
-  recentWindowMessages: z.number().step(1).min(1).max(64).default(SIDEQA_DEFAULTS.recentWindowMessages),
-  backgroundWindowMessages: z.number().step(1).min(1).max(256).default(SIDEQA_DEFAULTS.backgroundWindowMessages),
-  answerProvider: z.string().default(SIDEQA_DEFAULTS.answerProvider),
-  answerModel: z.string().default(SIDEQA_DEFAULTS.answerModel),
-  answerReasoningEffort: z.string().default(SIDEQA_DEFAULTS.answerReasoningEffort),
+/** Schemastery schema for the `sidebarqa` settings namespace. */
+export const SidebarqaPrefsSchema = z.object({
+  summarizeProvider: z.string().default(SIDEBARQA_DEFAULTS.summarizeProvider),
+  summarizeModel: z.string().default(SIDEBARQA_DEFAULTS.summarizeModel),
+  summarizeReasoningEffort: z.string().default(SIDEBARQA_DEFAULTS.summarizeReasoningEffort),
+  summarizeBudgetTokens: z.number().step(1).min(64).max(8192).default(SIDEBARQA_DEFAULTS.summarizeBudgetTokens),
+  recentWindowMessages: z.number().step(1).min(1).max(64).default(SIDEBARQA_DEFAULTS.recentWindowMessages),
+  backgroundWindowMessages: z.number().step(1).min(1).max(256).default(SIDEBARQA_DEFAULTS.backgroundWindowMessages),
+  answerProvider: z.string().default(SIDEBARQA_DEFAULTS.answerProvider),
+  answerModel: z.string().default(SIDEBARQA_DEFAULTS.answerModel),
+  answerReasoningEffort: z.string().default(SIDEBARQA_DEFAULTS.answerReasoningEffort),
 })

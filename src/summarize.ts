@@ -8,7 +8,7 @@
  * - The model only ever compresses the EARLIER part; the recent part carries
  *   the current state verbatim, so "对最新一条消息提问" keeps its anchor.
  */
-import type { SideqaStreamChunk, SideqaSurfaceEvent } from './context-types.ts'
+import type { SidebarqaStreamChunk, SidebarqaSurfaceEvent } from './context-types.ts'
 
 /** Per-segment char cap for the verbatim recent window. */
 export const RECENT_SEGMENT_MAX = 400
@@ -43,7 +43,7 @@ function textOfBlocks(blocks: unknown): string {
 }
 
 /** Extract the semantic text of one surface event ('' when non-text). */
-export function textOfEvent(event: SideqaSurfaceEvent): string {
+export function textOfEvent(event: SidebarqaSurfaceEvent): string {
   switch (event.type) {
     case 'user/message': {
       const data = event.data as { content?: unknown; source?: { kind?: unknown } }
@@ -64,7 +64,7 @@ export function textOfEvent(event: SideqaSurfaceEvent): string {
 }
 
 /** The role of one surface event ('assistant' for anything non-user). */
-function roleOfEvent(event: SideqaSurfaceEvent): 'user' | 'assistant' {
+function roleOfEvent(event: SidebarqaSurfaceEvent): 'user' | 'assistant' {
   return event.type === 'user/message' ? 'user' : 'assistant'
 }
 
@@ -72,7 +72,7 @@ function roleOfEvent(event: SideqaSurfaceEvent): 'user' | 'assistant' {
  * Fold the surface into ordered user/assistant segments (newest-last).
  * @param events - current surface events in model-history order.
  */
-export function extractSegments(events: readonly SideqaSurfaceEvent[]): SurfaceSegment[] {
+export function extractSegments(events: readonly SidebarqaSurfaceEvent[]): SurfaceSegment[] {
   const segments: SurfaceSegment[] = []
   for (const event of events) {
     const text = textOfEvent(event)
@@ -141,7 +141,7 @@ export interface AssembledText {
  * @param chunks - the `ctx.llm.stream` chunk iterable.
  * @returns the assembled text and whether the call errored or was aborted.
  */
-export async function assembleText(chunks: AsyncIterable<SideqaStreamChunk>): Promise<AssembledText> {
+export async function assembleText(chunks: AsyncIterable<SidebarqaStreamChunk>): Promise<AssembledText> {
   let text = ''
   let failed = false
   for await (const chunk of chunks) {

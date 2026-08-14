@@ -1,5 +1,5 @@
 /**
- * The `dsh-side-qa:ask` tab: an embedded conversation view for the current
+ * The `dsh-sidebar-qa:ask` tab: an embedded conversation view for the current
  * session's follow-up thread. A follow-up is a real workspace session, but the
  * Q&A happens IN the panel — the transcript streams here and a composer at the
  * bottom continues the conversation, without ever jumping to the child
@@ -8,15 +8,15 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { Context, SideqaTabComponentProps } from '../context-types.ts'
+import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
 import { transcriptOf, type TranscriptMessage } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp } from './orchestrate.ts'
-import type { SideqaStore } from './store.ts'
+import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
-interface AskPanelProps extends SideqaTabComponentProps {
-  store: SideqaStore
+interface AskPanelProps extends SidebarqaTabComponentProps {
+  store: SidebarqaStore
 }
 
 /** Reference-stable code-block copy labels (MarkdownText clears its streaming cache on identity change). */

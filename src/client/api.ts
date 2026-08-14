@@ -1,11 +1,11 @@
 /**
- * Typed fetch wrapper over the /sideqa JSON API (the host half's summarize
+ * Typed fetch wrapper over the /sidebarqa JSON API (the host half's summarize
  * route). Mirrors the wire envelope `{ok: true, value} | {ok: false, error}`.
  */
 import type { Context } from '../context-types.ts'
 
 /** One wire failure. */
-export class SideqaApiError extends Error {
+export class SidebarqaApiError extends Error {
   constructor(
     readonly code: string,
     message: string,
@@ -25,19 +25,19 @@ export interface SummarizeResult {
 async function call<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`/sideqa/api/${method}`, {
+    response = await fetch(`/sidebarqa/api/${method}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
       signal,
     })
   } catch (error) {
-    throw new SideqaApiError('network', error instanceof Error ? error.message : String(error))
+    throw new SidebarqaApiError('network', error instanceof Error ? error.message : String(error))
   }
   const parsed: { ok?: boolean; value?: unknown; error?: { code?: string; message?: string } } | null
     = await response.json().catch(() => null)
   if (!response.ok || parsed === null || parsed.ok !== true || parsed.value === undefined) {
-    throw new SideqaApiError(
+    throw new SidebarqaApiError(
       parsed?.error?.code ?? 'http',
       parsed?.error?.message ?? `HTTP ${response.status}`,
     )
@@ -45,8 +45,8 @@ async function call<T>(method: string, payload: Record<string, unknown>, signal?
   return parsed.value as T
 }
 
-/** Resolved sideqa configuration (mirror of the host SideqaConfig). */
-export interface SideqaConfigView {
+/** Resolved sidebarqa configuration (mirror of the host SidebarqaConfig). */
+export interface SidebarqaConfigView {
   summarizeProvider: string
   summarizeModel: string
   summarizeReasoningEffort: string
@@ -58,12 +58,12 @@ export interface SideqaConfigView {
   answerReasoningEffort: string
 }
 
-/** The sideqa API surface (session scope-free; the route fences itself). */
-export const sideqaApi = {
+/** The sidebarqa API surface (session scope-free; the route fences itself). */
+export const sidebarqaApi = {
   summarize: (payload: Record<string, unknown>, signal?: AbortSignal) =>
     call<SummarizeResult>('summarize', payload, signal),
   config: (signal?: AbortSignal) =>
-    call<SideqaConfigView>('config', {}, signal),
+    call<SidebarqaConfigView>('config', {}, signal),
 }
 
 /** Resolve a session's current model selection (used to inherit the summarize provider). */

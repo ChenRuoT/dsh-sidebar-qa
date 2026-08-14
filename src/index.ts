@@ -1,6 +1,6 @@
 /**
- * dsh-side-qa host half: the /sideqa JSON API (the summarize method only) and
- * the `sideqa` settings namespace (fast-model channel / budget / window). The
+ * dsh-sidebar-qa host half: the /sidebarqa JSON API (the summarize method only) and
+ * the `sidebarqa` settings namespace (fast-model channel / budget / window). The
  * summarize method reads the main session's current model surface through
  * `ctx.sessionQuery.readSurface`, compresses it with a fast no-thinking model
  * through `ctx.llm.stream`, and caches by (mainSessionId, sourceSeq). Any
@@ -13,10 +13,10 @@
 import type { IncomingMessage } from 'node:http'
 import type { Context } from './context-types.ts'
 import {
-  SIDEQA_DEFAULTS,
-  SIDEQA_SETTINGS_NS,
-  SideqaPrefsSchema,
-  type SideqaConfig,
+  SIDEBARQA_DEFAULTS,
+  SIDEBARQA_SETTINGS_NS,
+  SidebarqaPrefsSchema,
+  type SidebarqaConfig,
 } from './config.ts'
 import {
   assembleText,
@@ -30,11 +30,11 @@ import {
   splitRecent,
 } from './summarize.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
-import { readJsonBody, requireString, SideqaError, writeError, writeJson, writeOk } from './wire.ts'
-import type { SideqaLlmMessage, SideqaSettingsScope } from './context-types.ts'
+import { readJsonBody, requireString, SidebarqaError, writeError, writeJson, writeOk } from './wire.ts'
+import type { SidebarqaLlmMessage, SidebarqaSettingsScope } from './context-types.ts'
 
-export { SIDEQA_DEFAULTS, SIDEQA_SETTINGS_NS } from './config.ts'
-export type { SideqaConfig } from './config.ts'
+export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
+export type { SidebarqaConfig } from './config.ts'
 export type { Context } from './context-types.ts'
 export {
   assembleText,
@@ -48,7 +48,7 @@ export {
 } from './summarize.ts'
 
 /** Plugin identity for cordis.yml rows. */
-export const name = 'dsh-side-qa'
+export const name = 'dsh-sidebar-qa'
 
 /** Services required before mounting: the webserver routes, the session query engine, the llm runtime, and the loader's connection row (trust fence). */
 export const inject = ['webServer', 'sessionQuery', 'llm', 'loader']
@@ -81,12 +81,12 @@ function randomId(): string {
 }
 
 /** Build a user-role message carrying the surface text. */
-function userMessage(text: string): SideqaLlmMessage {
+function userMessage(text: string): SidebarqaLlmMessage {
   return {
     id: randomId(),
     role: 'user',
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: 'dsh-side-qa' },
+    source: { kind: 'plugin', plugin: 'dsh-sidebar-qa' },
   }
 }
 
@@ -104,11 +104,11 @@ function trustedHostsOf(ctx: Context): string[] {
 /** Build the API method table bound to the plugin context and its cache. */
 function buildApi(
   ctx: Context,
-  getConfig: () => SideqaConfig,
+  getConfig: () => SidebarqaConfig,
   cache: Map<string, CacheEntry>,
 ): Record<string, ApiMethod> {
   return {
-    config: (): SideqaConfig => getConfig(),
+    config: (): SidebarqaConfig => getConfig(),
     summarize: async (payload): Promise<SummarizeResult> => {
       const mainSessionId = requireString(payload, 'mainSessionId')
       const record = payload as { provider?: unknown; model?: unknown; budgetTokens?: unknown }
@@ -183,26 +183,26 @@ export function apply(ctx: Context): void {
   const fence = (req: IncomingMessage): boolean => isTrustedApiRequest(req, trustedHostsOf(ctx))
 
   // ── User-editable configuration ───────────────────────────────────────────
-  // The `sideqa` namespace is optional: deployments without a settings service
-  // (or a schemastery mismatch) fall back to SIDEQA_DEFAULTS and the summarize
+  // The `sidebarqa` namespace is optional: deployments without a settings service
+  // (or a schemastery mismatch) fall back to SIDEBARQA_DEFAULTS and the summarize
   // route still answers. The registration is defensive — a refusal must never
   // disable the plugin.
-  let configScope: SideqaSettingsScope<SideqaConfig> | undefined
+  let configScope: SidebarqaSettingsScope<SidebarqaConfig> | undefined
   const settingsService = ctx.get('settings') as unknown as
-    | { register<T>(ns: string, schema: unknown, options?: object): SideqaSettingsScope<T> }
+    | { register<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T> }
     | undefined
   if (settingsService !== undefined) {
     try {
-      configScope = settingsService.register<SideqaConfig>(SIDEQA_SETTINGS_NS, SideqaPrefsSchema)
+      configScope = settingsService.register<SidebarqaConfig>(SIDEBARQA_SETTINGS_NS, SidebarqaPrefsSchema)
     } catch (error) {
-      console.warn('[dsh-side-qa] settings registration failed; using defaults:', error)
+      console.warn('[dsh-sidebar-qa] settings registration failed; using defaults:', error)
     }
   }
-  const getConfig = (): SideqaConfig => {
+  const getConfig = (): SidebarqaConfig => {
     try {
-      return configScope?.get() ?? SIDEQA_DEFAULTS
+      return configScope?.get() ?? SIDEBARQA_DEFAULTS
     } catch {
-      return SIDEQA_DEFAULTS
+      return SIDEBARQA_DEFAULTS
     }
   }
 
@@ -211,7 +211,7 @@ export function apply(ctx: Context): void {
   const api = buildApi(ctx, getConfig, cache)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
-    path: '/sideqa/api',
+    path: '/sidebarqa/api',
     handler: async (req, res) => {
       if (!fence(req)) {
         writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
@@ -222,21 +222,21 @@ export function apply(ctx: Context): void {
         return
       }
       const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
-      const method = pathname.startsWith('/sideqa/api/') ? pathname.slice('/sideqa/api/'.length) : undefined
+      const method = pathname.startsWith('/sidebarqa/api/') ? pathname.slice('/sidebarqa/api/'.length) : undefined
       if (method === undefined || method.includes('/')) {
-        writeError(res, new SideqaError('not-found', 'unknown sideqa API method', 404))
+        writeError(res, new SidebarqaError('not-found', 'unknown sidebarqa API method', 404))
         return
       }
       try {
         const payload = await readJsonBody(req)
         const handler = api[method]
         if (handler === undefined) {
-          throw new SideqaError('not-found', `unknown sideqa API method "${method}"`, 404)
+          throw new SidebarqaError('not-found', `unknown sidebarqa API method "${method}"`, 404)
         }
         writeOk(res, await handler(payload))
       } catch (error) {
         writeError(res, error)
       }
     },
-  }), 'dsh-side-qa: /sideqa/api routes')
+  }), 'dsh-sidebar-qa: /sidebarqa/api routes')
 }

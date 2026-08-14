@@ -1,5 +1,5 @@
 /**
- * Browser-trust fence for the sideqa route, behaviorally identical to the
+ * Browser-trust fence for the sidebarqa route, behaviorally identical to the
  * /api gateway's fence (Host-header loopback or a configured trusted
  * authority passes; cross-site browser markers refuse). This is a
  * DNS-rebinding / cross-site defense, not authentication.

@@ -1,4 +1,4 @@
-# dsh-side-qa
+# dsh-sidebar-qa
 
 DeepSeek Harness（DSH）Web 插件：在对话里**划选任意文本 → 点击「提问」→ 右侧面板问答**。
 
@@ -25,7 +25,7 @@ dsh plugin --profile web add git+https://github.com/ChenRuoT/dsh-sidebar-qa.git
 dsh plugin --profile web add <本仓库路径>
 ```
 
-> 仓库名是 `dsh-sidebar-qa`，但发布包名 / 插件 id 是 `dsh-side-qa`（`package.json#name` 与 `dsh.plugin.json#id`）。两者只是仓库 slug 与包名的差别，安装后的插件 id 为 `dsh-side-qa`。
+> 仓库 slug、发布包名（`package.json#name`）、插件 id（`dsh.plugin.json#id`）统一为 `dsh-sidebar-qa`。
 
 重启 `dsh web`（host 半改动需要重启；client 改动浏览器硬刷新即可）。
 
@@ -39,7 +39,7 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 配置
 
-配置走 DSH 设置服务 `sideqa` 命名空间（settings.yaml 或设置页）：
+配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -58,8 +58,8 @@ dsh plugin --profile web add <本仓库路径>
 ## 架构
 
 ```
-dsh-side-qa (bundle: dsh.bundle + package.json#dsh.client)
-├── src/index.ts            host：/sideqa/api 摘要服务 + sideqa 设置命名空间
+dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
+├── src/index.ts            host：/sidebarqa/api 摘要服务 + sidebarqa 设置命名空间
 ├── src/summarize.ts        表面文本抽取 + 流组装（纯函数，可测）
 ├── src/config.ts           设置 schema + 默认值
 ├── src/context-types.ts    结构化 cordis 服务面 + Context 增补
@@ -73,7 +73,7 @@ dsh-side-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 主题生成
     ├── answer.ts           历史流 → 回答文本折叠
-    └── api.ts              /sideqa/api fetch 封装 + 当前模型读取
+    └── api.ts              /sidebarqa/api fetch 封装 + 当前模型读取
 ```
 
 ### 关键数据流

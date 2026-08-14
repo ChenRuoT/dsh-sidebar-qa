@@ -10,9 +10,9 @@
  * follow-ups are supported by the same flow.
  */
 import type { Context } from '../context-types.ts'
-import { currentModelOf, sideqaApi, type SideqaConfigView, type SummarizeResult } from './api.ts'
+import { currentModelOf, sidebarqaApi, type SidebarqaConfigView, type SummarizeResult } from './api.ts'
 import { buildFirstMessage, followUpTitle, topicFromQuote } from './injection.ts'
-import type { PendingQuote, SideqaStore } from './store.ts'
+import type { PendingQuote, SidebarqaStore } from './store.ts'
 
 /** Result of one ask. */
 export interface AskResult {
@@ -47,14 +47,14 @@ function sessionCwd(ctx: Context, sessionId: string): string | undefined {
 async function tryRename(ctx: Context, sideSessionId: string, title: string): Promise<void> {
   try {
     const response = await ctx.connection.api.sessions.rename({ sessionId: sideSessionId, title })
-    if (!response.result.ok) console.warn('[dsh-side-qa] rename failed:', response.result.error.message)
+    if (!response.result.ok) console.warn('[dsh-sidebar-qa] rename failed:', response.result.error.message)
   } catch (error) {
-    console.warn('[dsh-side-qa] rename failed:', error)
+    console.warn('[dsh-sidebar-qa] rename failed:', error)
   }
 }
 
 /** Best-effort model selection (default deepseek-v4-flash, thinking off). */
-async function trySelectModel(ctx: Context, sideSessionId: string, config: SideqaConfigView): Promise<void> {
+async function trySelectModel(ctx: Context, sideSessionId: string, config: SidebarqaConfigView): Promise<void> {
   try {
     const response = await ctx.connection.api.sessions.selectModel({
       sessionId: sideSessionId,
@@ -62,16 +62,16 @@ async function trySelectModel(ctx: Context, sideSessionId: string, config: Sideq
       model: config.answerModel,
       ...(config.answerReasoningEffort !== '' ? { reasoningEffort: config.answerReasoningEffort } : {}),
     })
-    if (!response.result.ok) console.warn('[dsh-side-qa] selectModel failed:', response.result.error.message)
+    if (!response.result.ok) console.warn('[dsh-sidebar-qa] selectModel failed:', response.result.error.message)
   } catch (error) {
-    console.warn('[dsh-side-qa] selectModel failed:', error)
+    console.warn('[dsh-sidebar-qa] selectModel failed:', error)
   }
 }
 
 /** Read the resolved plugin config (fall back to safe defaults on failure). */
-async function loadConfig(ctx: Context): Promise<SideqaConfigView> {
+async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
   try {
-    return await sideqaApi.config()
+    return await sidebarqaApi.config()
   } catch {
     // Keep the ask working even if the host route is unavailable.
     return {
@@ -94,7 +94,7 @@ async function loadConfig(ctx: Context): Promise<SideqaConfigView> {
  */
 export async function askFollowUp(
   ctx: Context,
-  store: SideqaStore,
+  store: SidebarqaStore,
   input: { parentSessionId: string; quote: PendingQuote; question: string },
   onPhase?: (phase: AskPhase) => void,
 ): Promise<AskResult> {
@@ -109,7 +109,7 @@ export async function askFollowUp(
   const cwd = workspaceId === undefined ? sessionCwd(ctx, parentSessionId) : undefined
 
   // Summarize + create run in parallel (independent).
-  const summarizePromise = sideqaApi.summarize({
+  const summarizePromise = sidebarqaApi.summarize({
     mainSessionId: parentSessionId,
     ...(config.summarizeProvider !== ''
       ? { provider: config.summarizeProvider }

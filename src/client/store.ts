@@ -1,5 +1,5 @@
 /**
- * Client store for dsh-side-qa: the parent→children mapping between
+ * Client store for dsh-sidebar-qa: the parent→children mapping between
  * follow-up (side) sessions and the session they were asked from (localStorage
  * persisted) plus the transient per-session pending quote. One instance per
  * plugin activation (created in apply(), never a module-level singleton).
@@ -10,7 +10,7 @@
  * session" when it appears as a child; its root (main) session is reached by
  * walking the parent chain to the top.
  */
-const STORAGE_KEY = 'dsh-side-qa:map'
+const STORAGE_KEY = 'dsh-sidebar-qa:map'
 
 /** A captured selection awaiting a question. */
 export interface PendingQuote {
@@ -23,7 +23,7 @@ export interface PendingQuote {
 }
 
 /** The immutable store snapshot consumed through useSyncExternalStore. */
-export interface SideqaStoreSnapshot {
+export interface SidebarqaStoreSnapshot {
   /** parent session id → child (follow-up) session ids (creation order). */
   parentToChildren: Record<string, string[]>
   /** child session id → parent session id (reverse index). */
@@ -32,8 +32,8 @@ export interface SideqaStoreSnapshot {
   pendingBySession: Record<string, PendingQuote>
 }
 
-export interface SideqaStore {
-  getSnapshot(): SideqaStoreSnapshot
+export interface SidebarqaStore {
+  getSnapshot(): SidebarqaStoreSnapshot
   subscribe(fn: () => void): () => void
   setPendingQuote(sessionId: string, quote: PendingQuote | null): void
   addChild(parentSessionId: string, childSessionId: string): void
@@ -83,14 +83,14 @@ function reverseIndex(map: Record<string, string[]>): Record<string, string> {
 }
 
 /** Create one store instance (call once per plugin activation). */
-export function createSideqaStore(): SideqaStore {
+export function createSidebarqaStore(): SidebarqaStore {
   let parentToChildren = loadMap()
   let pendingBySession: Record<string, PendingQuote> = {}
   const listeners = new Set<() => void>()
   // The snapshot is cached so getSnapshot() returns a STABLE reference until a
   // mutation invalidates it (useSyncExternalStore's no-tearing contract — a
   // fresh object per read would loop React infinitely).
-  let cachedSnapshot: SideqaStoreSnapshot | null = null
+  let cachedSnapshot: SidebarqaStoreSnapshot | null = null
 
   const notify = (): void => {
     cachedSnapshot = null
@@ -102,7 +102,7 @@ export function createSideqaStore(): SideqaStore {
     return () => { listeners.delete(fn) }
   }
 
-  const getSnapshot = (): SideqaStoreSnapshot => {
+  const getSnapshot = (): SidebarqaStoreSnapshot => {
     if (cachedSnapshot === null) {
       cachedSnapshot = {
         parentToChildren,

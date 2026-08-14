@@ -26,19 +26,19 @@ import type { Context } from 'cordis'
 // ────────────────────────────────────────────────────────────────────────────
 
 /** One named webserver route (mirror of the host-webserver WebRoute). */
-export interface SideqaWebRoute {
+export interface SidebarqaWebRoute {
   kind: 'exact' | 'prefix'
   path: string
   handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 }
 
 /** The webServer service face this plugin uses. */
-export interface SideqaWebServer {
-  register(route: SideqaWebRoute): () => void
+export interface SidebarqaWebServer {
+  register(route: SidebarqaWebRoute): () => void
 }
 
 /** Minimal structural mirror of one session surface event (readSurface output). */
-export interface SideqaSurfaceEvent {
+export interface SidebarqaSurfaceEvent {
   type: string
   seq: number
   time: number
@@ -46,20 +46,20 @@ export interface SideqaSurfaceEvent {
 }
 
 /** One atomic live-preferred observation of a session's current model surface. */
-export interface SideqaSurfaceSnapshot {
+export interface SidebarqaSurfaceSnapshot {
   session: unknown
   /** Highest raw-log seq included in the observation, or null for an empty log. */
   capturedThroughSeq: number | null
-  events: SideqaSurfaceEvent[]
+  events: SidebarqaSurfaceEvent[]
 }
 
 /** The sessionQuery service face (only readSurface is needed). */
-export interface SideqaSessionQueryService {
-  readSurface(sessionId: string): Promise<SideqaSurfaceSnapshot>
+export interface SidebarqaSessionQueryService {
+  readSurface(sessionId: string): Promise<SidebarqaSurfaceSnapshot>
 }
 
 /** One message passed to the fast summarize model (structural Message mirror). */
-export interface SideqaLlmMessage {
+export interface SidebarqaLlmMessage {
   id: string
   role: 'system' | 'user' | 'assistant'
   content: readonly { type: 'text'; text: string }[]
@@ -67,10 +67,10 @@ export interface SideqaLlmMessage {
 }
 
 /** One model request, fully assembled (structural GenerateOptions mirror). */
-export interface SideqaLlmRequest {
+export interface SidebarqaLlmRequest {
   provider: string
   model: string
-  messages: SideqaLlmMessage[]
+  messages: SidebarqaLlmMessage[]
   system?: string
   maxTokens?: number
   reasoningEffort?: string
@@ -78,7 +78,7 @@ export interface SideqaLlmRequest {
 }
 
 /** One raw streaming chunk emitted by the adapter (structural StreamChunk mirror). */
-export type SideqaStreamChunk =
+export type SidebarqaStreamChunk =
   | { type: 'block-start'; index: number; blockType: string }
   | { type: 'text-delta'; index: number; text: string }
   | { type: 'reasoning-delta'; index: number; text: string }
@@ -88,29 +88,29 @@ export type SideqaStreamChunk =
   | { type: 'finish'; reason: { kind?: string } }
 
 /** The llm service face this plugin uses (stream a one-shot summary call). */
-export interface SideqaLlmService {
-  stream(options: SideqaLlmRequest): AsyncIterable<SideqaStreamChunk>
+export interface SidebarqaLlmService {
+  stream(options: SidebarqaLlmRequest): AsyncIterable<SidebarqaStreamChunk>
 }
 
 /** One loader entry's options slice (the connection row's resolved config). */
-export interface SideqaLoaderEntry {
+export interface SidebarqaLoaderEntry {
   options: { name: string; config?: { trustedHosts?: string[] } }
 }
 
 /** The loader face used to read the connection row's trustedHosts config. */
-export interface SideqaLoader {
-  entries(): Iterable<SideqaLoaderEntry>
+export interface SidebarqaLoader {
+  entries(): Iterable<SidebarqaLoaderEntry>
 }
 
 /** The settings namespace scope this plugin reads. */
-export interface SideqaSettingsScope<T> {
+export interface SidebarqaSettingsScope<T> {
   get(): T
   watch(callback: (next: T, prev: T) => void): () => void
 }
 
 /** The settings service face (only register is needed). */
-export interface SideqaSettingsService {
-  register<T>(ns: string, schema: unknown, options?: object): SideqaSettingsScope<T>
+export interface SidebarqaSettingsService {
+  register<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T>
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -118,18 +118,18 @@ export interface SideqaSettingsService {
 // ────────────────────────────────────────────────────────────────────────────
 
 /** A plugin-contributed sidebar tab (mirror of better-sidebar TabDescriptor). */
-export interface SideqaTabDescriptor {
+export interface SidebarqaTabDescriptor {
   id: string
   title: string | (() => string)
   icon?: unknown | ((size: number) => unknown)
   order?: number
   hidden?: boolean
   single?: boolean
-  component: (props: SideqaTabComponentProps) => unknown
+  component: (props: SidebarqaTabComponentProps) => unknown
 }
 
 /** Props every tab component receives (mirror of better-sidebar TabComponentProps). */
-export interface SideqaTabComponentProps {
+export interface SidebarqaTabComponentProps {
   ctx: Context
   scope: { sessionId: string; cwd?: string }
   tab: { id: string; type: string; title: string; path?: string; diff?: unknown }
@@ -137,13 +137,13 @@ export interface SideqaTabComponentProps {
 }
 
 /** The betterSidebar registry service published as `ctx.betterSidebar`. */
-export interface SideqaBetterSidebarService {
-  registerTab(descriptor: SideqaTabDescriptor): () => void
+export interface SidebarqaBetterSidebarService {
+  registerTab(descriptor: SidebarqaTabDescriptor): () => void
   openTab(seed: { type: string; title?: string; id?: string; path?: string; url?: string }): void
 }
 
 /** One session list row the client reads (display title + lineage + cwd). */
-export interface SideqaSessionSummary {
+export interface SidebarqaSessionSummary {
   id: string
   title?: string
   displayTitle: string
@@ -155,15 +155,15 @@ export interface SideqaSessionSummary {
 }
 
 /** The client session list snapshot this plugin subscribes to. */
-export interface SideqaSessionListSnapshot {
+export interface SidebarqaSessionListSnapshot {
   current: string | undefined
-  byId: Record<string, SideqaSessionSummary>
+  byId: Record<string, SidebarqaSessionSummary>
 }
 
 /** The client sessions service face (list feed + create + open). */
-export interface SideqaSessionsService {
+export interface SidebarqaSessionsService {
   list: {
-    getSnapshot(): SideqaSessionListSnapshot
+    getSnapshot(): SidebarqaSessionListSnapshot
     subscribe(fn: () => void): () => void
   }
   create(opts: { workspaceId?: string; cwd?: string; sessionId?: string }): Promise<string>
@@ -171,7 +171,7 @@ export interface SideqaSessionsService {
 }
 
 /** One raw session event on the append feed. */
-export interface SideqaSessionEvent {
+export interface SidebarqaSessionEvent {
   type: string
   seq: number
   time: number
@@ -179,65 +179,65 @@ export interface SideqaSessionEvent {
 }
 
 /** RPC result slot mirror (`RpcResult<T>` on the wire). */
-export type SideqaRpcResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
+export type SidebarqaRpcResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
 /** Unary response mirror (`RpcResponse<T>` on the wire). */
-export interface SideqaRpcResponse<T> {
-  result: SideqaRpcResult<T>
+export interface SidebarqaRpcResponse<T> {
+  result: SidebarqaRpcResult<T>
 }
 
 /** One history page entry. */
-export interface SideqaHistoryEntry {
-  event: SideqaSessionEvent
+export interface SidebarqaHistoryEntry {
+  event: SidebarqaSessionEvent
   view?: unknown
 }
 
 /** Complete model selection for one session. */
-export interface SideqaModelSelection {
+export interface SidebarqaModelSelection {
   provider: string
   model: string
   reasoningEffort?: string
 }
 
 /** The sessions RPC surface the client reaches through `ctx.connection.api`. */
-export interface SideqaSessionsRpc {
+export interface SidebarqaSessionsRpc {
   create(payload: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }):
-    Promise<SideqaRpcResponse<{ sessionId: string; agentPreset?: string }>>
+    Promise<SidebarqaRpcResponse<{ sessionId: string; agentPreset?: string }>>
   rename(payload: { sessionId: string; title: string }):
-    Promise<SideqaRpcResponse<{ title: string; seq: number }>>
+    Promise<SidebarqaRpcResponse<{ title: string; seq: number }>>
   selectModel(payload: { sessionId: string; provider: string; model: string; reasoningEffort?: string }):
-    Promise<SideqaRpcResponse<{ selected: SideqaModelSelection }>>
+    Promise<SidebarqaRpcResponse<{ selected: SidebarqaModelSelection }>>
   models(payload: { sessionId: string }):
-    Promise<SideqaRpcResponse<{ current: SideqaModelSelection; routable: boolean }>>
+    Promise<SidebarqaRpcResponse<{ current: SidebarqaModelSelection; routable: boolean }>>
   prompt(payload: { sessionId: string; mode: 'queue' | 'steer'; content: { type: 'text'; text: string }[]; clientTimeZone?: string }):
-    Promise<SideqaRpcResponse<{ accepted: true }>>
+    Promise<SidebarqaRpcResponse<{ accepted: true }>>
   history(payload: { sessionId: string; beforeSeq?: number; maxMessages?: number }):
-    Promise<SideqaRpcResponse<{ events: SideqaHistoryEntry[]; hasMore: boolean }>>
+    Promise<SidebarqaRpcResponse<{ events: SidebarqaHistoryEntry[]; hasMore: boolean }>>
 }
 
 /** The connection handle face (only the sessions RPC is needed). */
-export interface SideqaConnectionHandle {
+export interface SidebarqaConnectionHandle {
   api: {
-    sessions: SideqaSessionsRpc
+    sessions: SidebarqaSessionsRpc
   }
 }
 
 /** One workspace row the client reads (workspaceId + accounted session ids). */
-export interface SideqaWorkspaceView {
+export interface SidebarqaWorkspaceView {
   workspaceId: string
   title: string
   sessionIds: string[]
 }
 
 /** The client workspaces list snapshot. */
-export interface SideqaWorkspaceListSnapshot {
-  items: SideqaWorkspaceView[]
+export interface SidebarqaWorkspaceListSnapshot {
+  items: SidebarqaWorkspaceView[]
 }
 
 /** The client workspaces service face (only the list feed is needed). */
-export interface SideqaWorkspacesService {
+export interface SidebarqaWorkspacesService {
   list: {
-    getSnapshot(): SideqaWorkspaceListSnapshot
+    getSnapshot(): SidebarqaWorkspaceListSnapshot
     subscribe(fn: () => void): () => void
   }
 }
@@ -248,26 +248,26 @@ export interface SideqaWorkspacesService {
 
 declare module 'cordis' {
   interface Context {
-    webServer: SideqaWebServer
-    sessionQuery: SideqaSessionQueryService
-    llm: SideqaLlmService
-    loader: SideqaLoader
-    settings: SideqaSettingsService
-    sessions: SideqaSessionsService
-    connection: SideqaConnectionHandle
-    workspaces: SideqaWorkspacesService
+    webServer: SidebarqaWebServer
+    sessionQuery: SidebarqaSessionQueryService
+    llm: SidebarqaLlmService
+    loader: SidebarqaLoader
+    settings: SidebarqaSettingsService
+    sessions: SidebarqaSessionsService
+    connection: SidebarqaConnectionHandle
+    workspaces: SidebarqaWorkspacesService
     /**
      * The client-side sidebar registry: external plugins register tab types
      * here. Provided by dsh-better-sidebar's client half; undefined on the
      * host side. The plugin requires it (hard peer dependency).
      */
-    betterSidebar: SideqaBetterSidebarService
+    betterSidebar: SidebarqaBetterSidebarService
     /**
      * Subscribe to the session append feed (mirror of the cordis event API):
      * the listener receives every appended session event with the LIVE
      * Session instance that appended it. Returns the disposer.
      */
-    on(event: string, listener: (session: unknown, event: SideqaSessionEvent) => void): () => void
+    on(event: string, listener: (session: unknown, event: SidebarqaSessionEvent) => void): () => void
     /**
      * Register a lifecycle callback (DSH-vendored cordis): runs at plugin
      * activation; its returned cleanup runs at disposal.
