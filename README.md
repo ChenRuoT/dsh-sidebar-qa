@@ -1,13 +1,13 @@
 # dsh-sidebar-qa
 
 DeepSeek Harness（DSH）Web 插件：在对话里**划选任意文本 → 点击「提问」→ 右侧面板问答**。
-
+基于dsh-better-sidebar开发的第三方拓展Tab页面。实现类codex侧边提问/claude code的/btw功能
 插件自动创建一条**同工作区的独立 DSH 会话**（命名 `❓追问·<主题>`），用**快速无思考模型**把主对话上下文压缩成小摘要后与引文一起注入，回答过程**完全不打断主对话**。追问会话在左侧边栏可见、可继续、可归档，并保持与主对话的从属关系（插件自维护映射）。
 
 
 ## 前置依赖（必装）
 
-`dsh-better-sidebar` 是 **required peerDependency**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话）。
+`dsh-better-sidebar`  **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话）。
 
 ```bash
 dsh plugin --profile web add dsh-better-sidebar
