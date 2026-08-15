@@ -198,7 +198,7 @@ export function AskPanel(props: AskPanelProps) {
           disabled={question.trim() === '' || busy}
           onClick={() => { void submit() }}
         >
-          {phase === 'asking' ? '摘要生成中…' : phase === 'answering' ? '回答中…' : '发送'}
+          {phase === 'asking' ? '主对话上下文整理中…' : phase === 'answering' ? '回答中…' : '发送'}
         </button>
       </div>
 

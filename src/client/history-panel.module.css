@@ -1,3 +1,8 @@
+/*
+ * Colors come from the DSH design platform (packages/client/ui-theme). The
+ * `--dsw-alias-*` tokens flip under `body[data-ds-dark-theme]`, so this panel
+ * follows the app's light/dark scheme automatically.
+ */
 .root {
   display: flex;
   flex-direction: column;
@@ -5,12 +10,12 @@
   padding: 12px;
   height: 100%;
   overflow-y: auto;
-  color: #e6e6eb;
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
 }
 
 .empty {
-  color: #6a6a78;
+  color: var(--dsw-alias-label-dimmed);
 }
 
 .group {
@@ -25,7 +30,7 @@
   appearance: none;
   border: none;
   background: transparent;
-  color: #e6e6eb;
+  color: var(--dsw-alias-label-primary);
   text-align: left;
   font-size: 13px;
   padding: 6px 8px;
@@ -34,14 +39,14 @@
 }
 
 .mainRow:hover {
-  background: #20202a;
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #4c8dff;
+  background: var(--dsw-alias-state-business-primary);
   flex: none;
 }
 
@@ -55,7 +60,7 @@
   flex-direction: column;
   margin-left: 12px;
   padding-left: 10px;
-  border-left: 1px solid #2c2c36;
+  border-left: 1px solid var(--dsw-alias-border-l2);
 }
 
 .sideRow {
@@ -65,7 +70,7 @@
   appearance: none;
   border: none;
   background: transparent;
-  color: #9bb8ff;
+  color: var(--dsw-alias-state-business-primary);
   text-align: left;
   font-size: 13px;
   padding: 5px 8px;
@@ -74,13 +79,13 @@
 }
 
 .sideRow:hover {
-  background: #20202a;
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .connector {
   width: 10px;
   height: 1px;
-  background: #2c2c36;
+  background: var(--dsw-alias-border-l2);
   flex: none;
 }
 

@@ -1,3 +1,8 @@
+/*
+ * Colors come from the DSH design platform (packages/client/ui-theme). The
+ * `--dsw-alias-*` tokens flip under `body[data-ds-dark-theme]`, so the popover
+ * follows the app's light/dark scheme automatically.
+ */
 .popover {
   position: fixed;
   z-index: 2147483000;
@@ -7,9 +12,9 @@
 
 .ask {
   appearance: none;
-  border: 1px solid #4c8dff;
-  background: #1b1b22;
-  color: #e6e6eb;
+  border: 1px solid var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-button-floating-fill);
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 1;
   padding: 7px 12px;
@@ -19,5 +24,5 @@
 }
 
 .ask:hover {
-  background: #23232c;
+  background: var(--dsw-alias-button-floating-hover);
 }
