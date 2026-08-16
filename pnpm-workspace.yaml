@@ -66,4 +66,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-user-approval@0.1.0-rc.6'
   - '@deepseek-ai/dsh-user-questions@0.1.0-rc.6'
   - '@deepseek-ai/dsh-workspace@0.1.0-rc.6'
-  - dsh-better-sidebar@0.11.0
+  - dsh-better-sidebar@0.12.1
