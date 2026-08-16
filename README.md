@@ -19,8 +19,8 @@ dsh plugin --profile web add dsh-better-sidebar
 ## 安装
 
 ```bash
-# 通过 git（推荐）
-dsh plugin --profile web add git+https://github.com/ChenRuoT/dsh-sidebar-qa.git
+# 通过 npm（推荐）
+dsh plugin --profile web add dsh-sidebar-qa
 
 # 或本地路径
 dsh plugin --profile web add <本仓库路径>
