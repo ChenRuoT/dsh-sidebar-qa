@@ -49,4 +49,14 @@ describe('createSidebarqaStore', () => {
     expect(after).not.toBe(before) // changed after a mutation
     expect(store.getSnapshot()).toBe(after) // stable again
   })
+
+  it('marks a side session as titled exactly once', () => {
+    const store = createSidebarqaStore()
+    expect(store.isTitled('side1')).toBe(false)
+    store.markTitled('side1')
+    expect(store.isTitled('side1')).toBe(true)
+    store.markTitled('side1') // idempotent
+    expect(store.isTitled('side1')).toBe(true)
+    expect(store.isTitled('other')).toBe(false)
+  })
 })

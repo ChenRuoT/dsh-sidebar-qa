@@ -11,7 +11,7 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
 import { transcriptOf, type TranscriptMessage } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
-import { askFollowUp, sendFollowUp } from './orchestrate.ts'
+import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
@@ -82,7 +82,14 @@ export function AskPanel(props: AskPanelProps) {
       try {
         const response = await ctx.connection.api.sessions.history({ sessionId: activeChildId, maxMessages: 60 })
         if (cancelled || !response.result.ok) return
-        setMessages(transcriptOf(response.result.value.events))
+        const events = response.result.value.events
+        setMessages(transcriptOf(events))
+        // Post-answer retitle: fires once (guarded by the store's titled flag).
+        void titleSideSessionOnce(ctx, store, {
+          sideSessionId: activeChildId,
+          parentSessionId: store.parentOf(activeChildId) ?? sessionId,
+          events,
+        })
       } catch {
         // keep the last known transcript; retry on the next tick
       }
@@ -93,7 +100,7 @@ export function AskPanel(props: AskPanelProps) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeChildId, visible, ctx])
+  }, [activeChildId, visible, ctx, store, sessionId])
 
   // When the active follow-up finishes, leave the answering phase.
   useEffect(() => {

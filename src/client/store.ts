@@ -11,6 +11,7 @@
  * walking the parent chain to the top.
  */
 const STORAGE_KEY = 'dsh-sidebar-qa:map'
+const TITLED_STORAGE_KEY = 'dsh-sidebar-qa:titled'
 
 /** A captured selection awaiting a question. */
 export interface PendingQuote {
@@ -43,6 +44,10 @@ export interface SidebarqaStore {
   isSideSession(sessionId: string): boolean
   /** The root (main) session of a session, walking the parent chain up. */
   rootOf(sessionId: string): string
+  /** Whether a side session's post-answer retitle has been attempted. */
+  isTitled(sessionId: string): boolean
+  /** Mark a side session's post-answer retitle as attempted (fires once). */
+  markTitled(sessionId: string): void
 }
 
 /** Parse the persisted map, tolerating any corruption. */
@@ -82,9 +87,32 @@ function reverseIndex(map: Record<string, string[]>): Record<string, string> {
   return out
 }
 
+/** Parse the persisted titled-session set, tolerating any corruption. */
+function loadTitled(): Set<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(TITLED_STORAGE_KEY)
+    if (raw === null || raw === undefined || raw === '') return new Set()
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return new Set()
+    return new Set(parsed.filter((item): item is string => typeof item === 'string'))
+  } catch {
+    return new Set()
+  }
+}
+
+/** Persist the titled-session set (best-effort; localStorage may be unavailable). */
+function saveTitled(sessions: Set<string>): void {
+  try {
+    globalThis.localStorage?.setItem(TITLED_STORAGE_KEY, JSON.stringify([...sessions]))
+  } catch {
+    // ignore — the in-memory set remains authoritative for the session.
+  }
+}
+
 /** Create one store instance (call once per plugin activation). */
 export function createSidebarqaStore(): SidebarqaStore {
   let parentToChildren = loadMap()
+  let titledSessions = loadTitled()
   let pendingBySession: Record<string, PendingQuote> = {}
   const listeners = new Set<() => void>()
   // The snapshot is cached so getSnapshot() returns a STABLE reference until a
@@ -151,6 +179,16 @@ export function createSidebarqaStore(): SidebarqaStore {
         current = reverse[current] as string
       }
       return current
+    },
+    isTitled(sessionId: string): boolean {
+      return titledSessions.has(sessionId)
+    },
+    markTitled(sessionId: string): void {
+      if (titledSessions.has(sessionId)) return
+      const next = new Set(titledSessions)
+      next.add(sessionId)
+      titledSessions = next
+      saveTitled(titledSessions)
     },
   }
 }

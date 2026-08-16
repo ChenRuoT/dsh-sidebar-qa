@@ -32,6 +32,10 @@ export interface SidebarqaConfig {
   answerModel: string
   /** Thinking effort for the answer model; 'off' = no thinking. */
   answerReasoningEffort: string
+
+  // ── Title (post-answer retitle, reuses the summarize model route) ─────────
+  /** Output-token cap for the post-answer title generation. */
+  titleBudgetTokens: number
 }
 
 /** Schema-backed defaults (also used when the settings service is absent). */
@@ -45,6 +49,7 @@ export const SIDEBARQA_DEFAULTS: SidebarqaConfig = {
   answerProvider: 'deepseek-official',
   answerModel: 'deepseek-v4-flash',
   answerReasoningEffort: 'off',
+  titleBudgetTokens: 64,
 }
 
 /** Schemastery schema for the `sidebarqa` settings namespace. */
@@ -58,4 +63,5 @@ export const SidebarqaPrefsSchema = z.object({
   answerProvider: z.string().default(SIDEBARQA_DEFAULTS.answerProvider),
   answerModel: z.string().default(SIDEBARQA_DEFAULTS.answerModel),
   answerReasoningEffort: z.string().default(SIDEBARQA_DEFAULTS.answerReasoningEffort),
+  titleBudgetTokens: z.number().step(1).min(16).max(256).default(SIDEBARQA_DEFAULTS.titleBudgetTokens),
 })

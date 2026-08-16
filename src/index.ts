@@ -31,6 +31,12 @@ import {
 } from './summarize.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { readJsonBody, requireString, SidebarqaError, writeError, writeJson, writeOk } from './wire.ts'
+import {
+  boundTitleInput,
+  normalizeTitle,
+  TITLE_MAX_BYTES,
+  TITLE_SYSTEM,
+} from './title.ts'
 import type { SidebarqaLlmMessage, SidebarqaSettingsScope } from './context-types.ts'
 
 export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
@@ -46,6 +52,7 @@ export {
   splitRecent,
   textOfEvent,
 } from './summarize.ts'
+export { TITLE_SYSTEM, boundTitleInput, buildTitleInput, normalizeTitle, truncateTitleUtf8 } from './title.ts'
 
 /** Plugin identity for cordis.yml rows. */
 export const name = 'dsh-sidebar-qa'
@@ -56,11 +63,21 @@ export const inject = ['webServer', 'sessionQuery', 'llm', 'loader']
 /** How long a summarize call may run before degrading. */
 const SUMMARIZE_TIMEOUT_MS = 8000
 
+/** How long a title call may run before degrading. */
+const TITLE_TIMEOUT_MS = 8000
+
 /** Result of one summarize call (the client branches on `degraded`). */
 export interface SummarizeResult {
   degraded: boolean
   summary: string | null
   sourceSeq: number
+  reason?: string
+}
+
+/** Result of one title call (the client branches on `degraded`). */
+export interface TitleResult {
+  degraded: boolean
+  title: string | null
   reason?: string
 }
 
@@ -171,6 +188,45 @@ function buildApi(
       }
       cache.set(mainSessionId, { sourceSeq, summary })
       return { degraded: false, summary, sourceSeq }
+    },
+    title: async (payload): Promise<TitleResult> => {
+      const text = requireString(payload, 'text')
+      const record = payload as { provider?: unknown; model?: unknown; budgetTokens?: unknown }
+      const config = getConfig()
+      // The title reuses the summarize route (fixed flash / thinking off); the
+      // client resolves the inherited provider, and the model defaults here.
+      const provider = typeof record.provider === 'string' && record.provider !== ''
+        ? record.provider
+        : config.summarizeProvider
+      const model = typeof record.model === 'string' && record.model !== ''
+        ? record.model
+        : config.summarizeModel
+      const budgetTokens = typeof record.budgetTokens === 'number' && Number.isInteger(record.budgetTokens) && record.budgetTokens > 0
+        ? record.budgetTokens
+        : config.titleBudgetTokens
+
+      // No provider → degrade; the client keeps the placeholder title.
+      if (provider === '') return { degraded: true, title: null, reason: 'no-provider' }
+      try {
+        const chunks = ctx.llm.stream({
+          provider,
+          model,
+          messages: [userMessage(boundTitleInput(text))],
+          system: TITLE_SYSTEM,
+          maxTokens: budgetTokens,
+          ...(config.summarizeReasoningEffort !== '' ? { reasoningEffort: config.summarizeReasoningEffort } : {}),
+          signal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
+        })
+        const assembled = await assembleText(chunks)
+        if (assembled.failed || assembled.text.trim() === '') {
+          return { degraded: true, title: null, reason: assembled.failed ? 'stream' : 'empty' }
+        }
+        const title = normalizeTitle(assembled.text, TITLE_MAX_BYTES)
+        if (title === '') return { degraded: true, title: null, reason: 'empty-title' }
+        return { degraded: false, title }
+      } catch {
+        return { degraded: true, title: null, reason: 'error' }
+      }
     },
   }
 }

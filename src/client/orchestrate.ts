@@ -11,8 +11,11 @@
  */
 import type { Context } from '../context-types.ts'
 import { currentModelOf, sidebarqaApi, type SidebarqaConfigView, type SummarizeResult } from './api.ts'
-import { buildFirstMessage, followUpTitle, topicFromQuote } from './injection.ts'
+import { buildFirstMessage, followUpTitle, parseUserMessage, topicFromQuote } from './injection.ts'
+import { hasTurnEnded, transcriptOf } from './answer.ts'
+import { buildTitleInput } from '../title.ts'
 import type { PendingQuote, SidebarqaStore } from './store.ts'
+import type { SidebarqaHistoryEntry } from '../context-types.ts'
 
 /** Result of one ask. */
 export interface AskResult {
@@ -84,6 +87,7 @@ async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
       answerProvider: 'deepseek-official',
       answerModel: 'deepseek-v4-flash',
       answerReasoningEffort: 'off',
+      titleBudgetTokens: 64,
     }
   }
 }
@@ -162,5 +166,68 @@ export async function sendFollowUp(ctx: Context, sideSessionId: string, question
   })
   if (!response.result.ok) {
     throw new Error(`prompt failed: ${response.result.error.code}: ${response.result.error.message}`)
+  }
+}
+
+/**
+ * Fold one history page into the clean question + answer for the title model.
+ * The question is recovered via {@link parseUserMessage} (summary + quote
+ * stripped); the answer is every settled assistant message's text.
+ */
+function questionAndAnswerOf(events: readonly SidebarqaHistoryEntry[]): { question: string; answer: string } {
+  const transcript = transcriptOf(events)
+  const question = transcript
+    .filter(message => message.role === 'user')
+    .map(message => parseUserMessage(message.text).question)
+    .filter(text => text.trim() !== '')
+    .join(' / ')
+  const answer = transcript
+    .filter(message => message.role === 'assistant')
+    .map(message => message.text)
+    .filter(text => text.trim() !== '')
+    .join('\n')
+  return { question, answer }
+}
+
+/**
+ * One-shot post-answer retitle: after the side session's FIRST turn completes,
+ * fold the question + answer into a compact input, ask the fast no-thinking
+ * title model (the summarize route: fixed flash / thinking off) for a ≤15-char
+ * subject, and overwrite the placeholder `❓追问·<topicFromQuote>` title.
+ * Fires at most once per side session (the store flag), never blocks the
+ * panel, and degrades silently to the placeholder on any failure.
+ */
+export async function titleSideSessionOnce(
+  ctx: Context,
+  store: SidebarqaStore,
+  input: { sideSessionId: string; parentSessionId: string; events: readonly SidebarqaHistoryEntry[] },
+): Promise<void> {
+  const { sideSessionId, parentSessionId, events } = input
+  if (!hasTurnEnded(events)) return
+  if (store.isTitled(sideSessionId)) return
+  store.markTitled(sideSessionId)
+
+  const { question, answer } = questionAndAnswerOf(events)
+  const text = buildTitleInput(question, answer)
+  if (text.trim() === '') return
+
+  try {
+    const [config, parentModel] = await Promise.all([
+      loadConfig(ctx),
+      currentModelOf(ctx, parentSessionId),
+    ])
+    const provider = config.summarizeProvider !== ''
+      ? config.summarizeProvider
+      : parentModel?.provider ?? config.answerProvider
+    if (provider === '') return
+    const result = await sidebarqaApi.title({
+      text,
+      provider,
+      model: config.summarizeModel,
+    })
+    if (result.degraded || result.title === null || result.title === '') return
+    await tryRename(ctx, sideSessionId, followUpTitle(result.title))
+  } catch {
+    // Retitle is best-effort: the placeholder title remains.
   }
 }

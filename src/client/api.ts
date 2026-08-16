@@ -22,6 +22,13 @@ export interface SummarizeResult {
   reason?: string
 }
 
+/** Result of one title call (mirror of the host TitleResult). */
+export interface TitleResult {
+  degraded: boolean
+  title: string | null
+  reason?: string
+}
+
 async function call<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   let response: Response
   try {
@@ -56,12 +63,15 @@ export interface SidebarqaConfigView {
   answerProvider: string
   answerModel: string
   answerReasoningEffort: string
+  titleBudgetTokens: number
 }
 
 /** The sidebarqa API surface (session scope-free; the route fences itself). */
 export const sidebarqaApi = {
   summarize: (payload: Record<string, unknown>, signal?: AbortSignal) =>
     call<SummarizeResult>('summarize', payload, signal),
+  title: (payload: Record<string, unknown>, signal?: AbortSignal) =>
+    call<TitleResult>('title', payload, signal),
   config: (signal?: AbortSignal) =>
     call<SidebarqaConfigView>('config', {}, signal),
 }
