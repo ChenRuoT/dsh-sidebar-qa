@@ -278,8 +278,8 @@ export function apply(ctx: Context): void {
   // concurrent change (mirror of the settings seam's own guard).
   let configScope: SidebarqaSettingsScope<SidebarqaConfig> | undefined
   let configFace: ConfigFace | undefined
-  const settingsService = ctx.get('settings') as unknown as SidebarqaSettingsService | undefined
-  if (settingsService !== undefined) {
+  ctx.inject(['settings'], (sctx) => {
+    const settingsService = sctx.settings as unknown as SidebarqaSettingsService
     try {
       configScope = settingsService.register<SidebarqaConfig>(SIDEBARQA_SETTINGS_NS, SidebarqaPrefsSchema)
       const viewOf = (): { value?: unknown; revision?: number } => {
@@ -300,7 +300,7 @@ export function apply(ctx: Context): void {
     } catch (error) {
       console.warn('[dsh-sidebar-qa] settings registration failed; using defaults:', error)
     }
-  }
+  })
   const getConfig = (): SidebarqaConfig => {
     try {
       return configScope?.get() ?? SIDEBARQA_DEFAULTS
