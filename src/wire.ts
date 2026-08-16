@@ -12,6 +12,8 @@ export type SidebarqaErrorCode =
   | 'not-found'
   | 'forbidden'
   | 'method-error'
+  | 'settings-rejected'
+  | 'settings-conflict'
   | 'internal'
 
 /** One API failure with its wire code and HTTP status. */

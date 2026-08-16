@@ -1,0 +1,97 @@
+/*
+ * The webview config panel, rendered inside better-sidebar's settings gear
+ * Modal. It follows the DSH settings-row recipe (label/desc left, control
+ * right, hairline separators) with DSH-native design tokens so it matches the
+ * host settings popup and flips with the app's light/dark scheme.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 2px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.rows > :last-child {
+  border-bottom: none;
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.desc {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.textInput,
+.numberInput,
+.select {
+  flex: none;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+}
+
+.textInput {
+  width: 200px;
+}
+
+.numberInput {
+  width: 76px;
+}
+
+.select {
+  width: 200px;
+}
+
+.textInput:focus,
+.numberInput:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.loading {
+  padding: 14px 2px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  padding: 10px 0 2px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--dsw-alias-state-error-primary);
+}

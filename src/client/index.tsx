@@ -13,6 +13,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { IconQuestionOutline14, IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import { AskPanel } from './AskPanel.tsx'
+import { ConfigPanel } from './ConfigPanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
 import { SelectionPopover } from './SelectionPopover.tsx'
 import { createSelectionController } from './selection.ts'
@@ -59,6 +60,12 @@ export function apply(ctx: Context): void {
       icon: (size: number) => <IconQuestionOutline14 size={size} />,
       order: 60,
       single: true,
+      // The "功能配置" entry: a gear button on the 追问 card in the DSH
+      // Settings → 侧边卡片 page, opening this panel to edit the `sidebarqa`
+      // settings namespace (better-sidebar v0.12.0+ renders `settings.render`).
+      settings: {
+        render: () => <ConfigPanel />,
+      },
       component: (props) => <AskPanel {...props} store={store} />,
     })
     const offHistory = ctx.betterSidebar.registerTab({

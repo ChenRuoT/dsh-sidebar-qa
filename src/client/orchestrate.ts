@@ -63,7 +63,7 @@ async function trySelectModel(ctx: Context, sideSessionId: string, config: Sideb
       sessionId: sideSessionId,
       provider: config.answerProvider,
       model: config.answerModel,
-      ...(config.answerReasoningEffort !== '' ? { reasoningEffort: config.answerReasoningEffort } : {}),
+      reasoningEffort: config.answerReasoningEffort,
     })
     if (!response.result.ok) console.warn('[dsh-sidebar-qa] selectModel failed:', response.result.error.message)
   } catch (error) {

@@ -37,10 +37,10 @@ import {
   TITLE_MAX_BYTES,
   TITLE_SYSTEM,
 } from './title.ts'
-import type { SidebarqaLlmMessage, SidebarqaSettingsScope } from './context-types.ts'
+import type { SidebarqaLlmMessage, SidebarqaSettingsScope, SidebarqaSettingsService } from './context-types.ts'
 
 export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
-export type { SidebarqaConfig } from './config.ts'
+export type { SidebarqaConfig, SidebarqaReasoningEffort } from './config.ts'
 export type { Context } from './context-types.ts'
 export {
   assembleText,
@@ -87,6 +87,12 @@ interface CacheEntry {
   summary: string
 }
 
+/** The config namespace's live face: value + revision read, revision-guarded write. */
+interface ConfigFace {
+  get(): { value?: unknown; revision?: number }
+  update(patch: Record<string, unknown>, expectedRevision?: number): Promise<{ value?: unknown; revision?: number }>
+}
+
 /** One API method dispatch table entry. */
 type ApiMethod = (payload: unknown) => Promise<unknown> | unknown
 
@@ -123,9 +129,34 @@ function buildApi(
   ctx: Context,
   getConfig: () => SidebarqaConfig,
   cache: Map<string, CacheEntry>,
+  getConfigFace: () => ConfigFace | undefined,
 ): Record<string, ApiMethod> {
   return {
     config: (): SidebarqaConfig => getConfig(),
+    'config.get': (): { value?: unknown; revision?: number } => {
+      const face = getConfigFace()
+      return face?.get() ?? { value: getConfig(), revision: undefined }
+    },
+    'config.update': async (payload): Promise<{ value?: unknown; revision?: number }> => {
+      const face = getConfigFace()
+      if (face === undefined) {
+        throw new SidebarqaError('settings-rejected', 'the settings service is not mounted in this deployment', 503)
+      }
+      const record = payload as { patch?: unknown; expectedRevision?: unknown } | null
+      const patch = record?.patch
+      if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new SidebarqaError('bad-request', 'patch must be a plain object')
+      }
+      const expectedRevision = typeof record?.expectedRevision === 'number' ? record.expectedRevision : undefined
+      try {
+        return await face.update(patch as Record<string, unknown>, expectedRevision)
+      } catch (error) {
+        if ((error as { code?: unknown }).code === 'SETTINGS_CONFLICT') {
+          throw new SidebarqaError('settings-conflict', error instanceof Error ? error.message : String(error), 409)
+        }
+        throw new SidebarqaError('settings-rejected', error instanceof Error ? error.message : String(error), 400)
+      }
+    },
     summarize: async (payload): Promise<SummarizeResult> => {
       const mainSessionId = requireString(payload, 'mainSessionId')
       const record = payload as { provider?: unknown; model?: unknown; budgetTokens?: unknown }
@@ -172,7 +203,7 @@ function buildApi(
             messages: [userMessage(earlierText)],
             system: BACKGROUND_SYSTEM,
             maxTokens: budgetTokens,
-            ...(config.summarizeReasoningEffort !== '' ? { reasoningEffort: config.summarizeReasoningEffort } : {}),
+            reasoningEffort: config.summarizeReasoningEffort,
             signal: AbortSignal.timeout(SUMMARIZE_TIMEOUT_MS),
           })
           const assembled = await assembleText(chunks)
@@ -214,7 +245,7 @@ function buildApi(
           messages: [userMessage(boundTitleInput(text))],
           system: TITLE_SYSTEM,
           maxTokens: budgetTokens,
-          ...(config.summarizeReasoningEffort !== '' ? { reasoningEffort: config.summarizeReasoningEffort } : {}),
+          reasoningEffort: config.summarizeReasoningEffort,
           signal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
         })
         const assembled = await assembleText(chunks)
@@ -242,14 +273,30 @@ export function apply(ctx: Context): void {
   // The `sidebarqa` namespace is optional: deployments without a settings service
   // (or a schemastery mismatch) fall back to SIDEBARQA_DEFAULTS and the summarize
   // route still answers. The registration is defensive — a refusal must never
-  // disable the plugin.
+  // disable the plugin. The config face adds a revision-guarded update path so
+  // the webview config panel persists edits without silently overwriting a
+  // concurrent change (mirror of the settings seam's own guard).
   let configScope: SidebarqaSettingsScope<SidebarqaConfig> | undefined
-  const settingsService = ctx.get('settings') as unknown as
-    | { register<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T> }
-    | undefined
+  let configFace: ConfigFace | undefined
+  const settingsService = ctx.get('settings') as unknown as SidebarqaSettingsService | undefined
   if (settingsService !== undefined) {
     try {
       configScope = settingsService.register<SidebarqaConfig>(SIDEBARQA_SETTINGS_NS, SidebarqaPrefsSchema)
+      const viewOf = (): { value?: unknown; revision?: number } => {
+        const descriptor = settingsService
+          .describe({ redactSecrets: true })
+          .find(candidate => candidate.ns === SIDEBARQA_SETTINGS_NS)
+        return descriptor === undefined
+          ? { value: undefined, revision: undefined }
+          : { value: descriptor.value, revision: descriptor.revision }
+      }
+      configFace = {
+        get: viewOf,
+        update: async (patch, expectedRevision) => {
+          await settingsService.update(SIDEBARQA_SETTINGS_NS, patch, expectedRevision)
+          return viewOf()
+        },
+      }
     } catch (error) {
       console.warn('[dsh-sidebar-qa] settings registration failed; using defaults:', error)
     }
@@ -264,7 +311,7 @@ export function apply(ctx: Context): void {
 
   // ── JSON API ──────────────────────────────────────────────────────────────
   const cache = new Map<string, CacheEntry>()
-  const api = buildApi(ctx, getConfig, cache)
+  const api = buildApi(ctx, getConfig, cache, () => configFace)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/sidebarqa/api',

@@ -66,6 +66,12 @@ export interface SidebarqaConfigView {
   titleBudgetTokens: number
 }
 
+/** The config namespace envelope (value + revision for revision-guarded writes). */
+export interface SidebarqaConfigEnvelope {
+  value?: SidebarqaConfigView
+  revision?: number
+}
+
 /** The sidebarqa API surface (session scope-free; the route fences itself). */
 export const sidebarqaApi = {
   summarize: (payload: Record<string, unknown>, signal?: AbortSignal) =>
@@ -74,6 +80,13 @@ export const sidebarqaApi = {
     call<TitleResult>('title', payload, signal),
   config: (signal?: AbortSignal) =>
     call<SidebarqaConfigView>('config', {}, signal),
+  configGet: (signal?: AbortSignal) =>
+    call<SidebarqaConfigEnvelope>('config.get', {}, signal),
+  configUpdate: (patch: Record<string, unknown>, expectedRevision?: number) =>
+    call<SidebarqaConfigEnvelope>('config.update', {
+      patch,
+      ...(expectedRevision !== undefined ? { expectedRevision } : {}),
+    }),
 }
 
 /** Resolve a session's current model selection (used to inherit the summarize provider). */

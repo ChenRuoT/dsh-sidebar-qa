@@ -9,6 +9,9 @@ import z from 'schemastery'
 /** Settings namespace id. */
 export const SIDEBARQA_SETTINGS_NS = 'sidebarqa'
 
+/** DSH reasoning-effort vocabulary: Off / High / Max. */
+export type SidebarqaReasoningEffort = 'off' | 'high' | 'max'
+
 /** User-editable configuration. */
 export interface SidebarqaConfig {
   // ── Summarize (fast no-thinking compression) ─────────────────────────────
@@ -16,8 +19,8 @@ export interface SidebarqaConfig {
   summarizeProvider: string
   /** Fast no-thinking chat model id. */
   summarizeModel: string
-  /** Thinking effort for the fast model; '' = omit (adapter default). */
-  summarizeReasoningEffort: string
+  /** Thinking effort for the fast model: Off / High / Max. */
+  summarizeReasoningEffort: SidebarqaReasoningEffort
   /** Output budget of the generated BACKGROUND summary, in tokens (soft bound). */
   summarizeBudgetTokens: number
   /** How many recent messages to keep VERBATIM (the current-state anchor). */
@@ -30,8 +33,8 @@ export interface SidebarqaConfig {
   answerProvider: string
   /** Model id for the side session's answer model. */
   answerModel: string
-  /** Thinking effort for the answer model; 'off' = no thinking. */
-  answerReasoningEffort: string
+  /** Thinking effort for the answer model: Off / High / Max. */
+  answerReasoningEffort: SidebarqaReasoningEffort
 
   // ── Title (post-answer retitle, reuses the summarize model route) ─────────
   /** Output-token cap for the post-answer title generation. */
@@ -56,12 +59,12 @@ export const SIDEBARQA_DEFAULTS: SidebarqaConfig = {
 export const SidebarqaPrefsSchema = z.object({
   summarizeProvider: z.string().default(SIDEBARQA_DEFAULTS.summarizeProvider),
   summarizeModel: z.string().default(SIDEBARQA_DEFAULTS.summarizeModel),
-  summarizeReasoningEffort: z.string().default(SIDEBARQA_DEFAULTS.summarizeReasoningEffort),
+  summarizeReasoningEffort: z.union(['off', 'high', 'max']).default(SIDEBARQA_DEFAULTS.summarizeReasoningEffort),
   summarizeBudgetTokens: z.number().step(1).min(64).max(8192).default(SIDEBARQA_DEFAULTS.summarizeBudgetTokens),
   recentWindowMessages: z.number().step(1).min(1).max(64).default(SIDEBARQA_DEFAULTS.recentWindowMessages),
   backgroundWindowMessages: z.number().step(1).min(1).max(256).default(SIDEBARQA_DEFAULTS.backgroundWindowMessages),
   answerProvider: z.string().default(SIDEBARQA_DEFAULTS.answerProvider),
   answerModel: z.string().default(SIDEBARQA_DEFAULTS.answerModel),
-  answerReasoningEffort: z.string().default(SIDEBARQA_DEFAULTS.answerReasoningEffort),
+  answerReasoningEffort: z.union(['off', 'high', 'max']).default(SIDEBARQA_DEFAULTS.answerReasoningEffort),
   titleBudgetTokens: z.number().step(1).min(16).max(256).default(SIDEBARQA_DEFAULTS.titleBudgetTokens),
 })

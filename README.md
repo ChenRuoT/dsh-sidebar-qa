@@ -38,19 +38,19 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 配置
 
-配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）：
+配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）。**Web 界面入口**：DSH 设置 → 侧边卡片 → 「追问」卡片右上角的齿轮「功能配置」弹窗（由 dsh-better-sidebar v0.12+ 的 `settings.render` 提供），可逐项编辑下表字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试）。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `summarizeProvider` | `''` | 摘要快速模型渠道；空 = 继承被追问会话的 provider |
 | `summarizeModel` | `deepseek-v4-flash` | 摘要快速无思考模型 |
-| `summarizeReasoningEffort` | `off` | 摘要思考模式（`off` = 关闭思考） |
+| `summarizeReasoningEffort` | `off` | 摘要思考模式（`off`/`high`/`max` 三档下拉） |
 | `summarizeBudgetTokens` | `160` | 背景摘要输出预算（tokens） |
 | `recentWindowMessages` | `2` | **近原文**保留的最近消息条数（当前状态锚点，不经过模型） |
 | `backgroundWindowMessages` | `12` | 交给模型压缩的较早消息条数上限 |
 | `answerProvider` | `deepseek-official` | 子对话回答模型渠道 |
 | `answerModel` | `deepseek-v4-flash` | 子对话回答模型 |
-| `answerReasoningEffort` | `off` | 子对话思考模式（`off` = 关闭思考） |
+| `answerReasoningEffort` | `off` | 子对话思考模式（`off`/`high`/`max` 三档下拉） |
 | `titleBudgetTokens` | `64` | 回答完成后重命名标题的输出预算（tokens） |
 
 > 上下文注入刻意保持轻量：旧背景压成**最多 3 句话**（目标 / 当前进度 / 未决事项），近期只保留最近 2 条且每段强截断（≤400 字符）；模型侧**从新到旧**提交，让当前进度落在注意力最强位置。摘要失败/无渠道时自动降级为「仅近期对话 + 引文 + 问题」，问答不中断。

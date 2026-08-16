@@ -106,16 +106,43 @@ export interface SidebarqaLoader {
 export interface SidebarqaSettingsScope<T> {
   get(): T
   watch(callback: (next: T, prev: T) => void): () => void
+  /** Merge a partial patch into this namespace's user layer (no revision guard). */
+  update(patch: object): Promise<void>
 }
 
-/** The settings service face (only register is needed). */
+/** One registered namespace descriptor surfaced to configuration surfaces. */
+export interface SidebarqaSettingsDescriptor {
+  ns: string
+  value?: unknown
+  revision: number
+}
+
+/** The settings service face (register + revision-guarded update + describe). */
 export interface SidebarqaSettingsService {
   register<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T>
+  describe(options?: { redactSecrets?: boolean }): SidebarqaSettingsDescriptor[]
+  update(ns: string, patch: object, expectedRevision?: number): Promise<void>
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Client faces
 // ────────────────────────────────────────────────────────────────────────────
+
+/** Props a custom settings panel receives (mirror of better-sidebar's `settings.render`). */
+export interface SidebarqaSettingsRenderProps {
+  /** Close the settings popup. */
+  close(): void
+  /** The feature's own persisted settings blob (better-sidebar's `pluginSettings[id]`). */
+  pluginSettings?: Record<string, unknown>
+  /** Persist one plugin-owned setting into better-sidebar's `pluginSettings[id]`. */
+  updatePluginSetting?(key: string, value: unknown): void
+}
+
+/** Declarative settings of a registered tab (mirror of better-sidebar's `settings`). */
+export interface SidebarqaSettingsDeclaration {
+  /** Custom settings panel rendered in the feature's gear popup (功能配置). */
+  render?: (props: SidebarqaSettingsRenderProps) => unknown
+}
 
 /** A plugin-contributed sidebar tab (mirror of better-sidebar TabDescriptor). */
 export interface SidebarqaTabDescriptor {
@@ -125,6 +152,7 @@ export interface SidebarqaTabDescriptor {
   order?: number
   hidden?: boolean
   single?: boolean
+  settings?: SidebarqaSettingsDeclaration
   component: (props: SidebarqaTabComponentProps) => unknown
 }
 
