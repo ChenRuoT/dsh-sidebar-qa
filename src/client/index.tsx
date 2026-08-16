@@ -10,6 +10,7 @@
  * behavior, no session creation) until better-sidebar provides it.
  */
 import { createRoot, type Root } from 'react-dom/client'
+import { IconQuestionOutline14, IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import { AskPanel } from './AskPanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
@@ -54,7 +55,8 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     const offAsk = ctx.betterSidebar.registerTab({
       id: 'dsh-sidebar-qa:ask',
-      title: () => '❓ 追问',
+      title: () => '追问',
+      icon: (size: number) => <IconQuestionOutline14 size={size} />,
       order: 60,
       single: true,
       component: (props) => <AskPanel {...props} store={store} />,
@@ -62,6 +64,7 @@ export function apply(ctx: Context): void {
     const offHistory = ctx.betterSidebar.registerTab({
       id: 'dsh-sidebar-qa:history',
       title: () => '追问记录',
+      icon: (size: number) => <IconQueueOutline14 size={size} />,
       order: 70,
       single: true,
       component: (props) => <HistoryPanel {...props} store={store} />,
