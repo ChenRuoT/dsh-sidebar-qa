@@ -48,6 +48,7 @@
     "src",
     "cordis.patch.yml",
     "README.md",
+    "README_EN.md",
     "LICENSE"
   ],
   "scripts": {

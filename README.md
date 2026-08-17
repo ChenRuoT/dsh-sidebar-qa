@@ -1,16 +1,36 @@
 # dsh-sidebar-qa
 
-DeepSeek Harness（DSH）Web 插件：在对话里**划选任意文本 → 点击「提问」→ 右侧面板问答**。
+<!-- Hero -->
+<div align="center">
+  <b style="font-size: 1.15em;">划选即问，侧边栏内嵌问答</b><br /><br />
+  <code>划选提问</code> <code>上下文摘要</code> <code>嵌套追问</code> <code>追问记录</code> <code>零打断</code><br /><br />
+  <b>DeepSeek Harness（DSH）Web 插件</b>：在对话里<b>划选任意文本 → 点击「提问」→ 右侧面板问答</b>——<br />
+  自动创建<b>同工作区的独立 DSH 会话</b>，主对话零打断。实现类 codex 侧边提问 / Claude Code `/btw` 功能。
+</div>
 
-基于dsh-better-sidebar开发的第三方拓展Tab页面。实现类codex侧边提问/claude code的/btw功能
+<div align="center">
+  🌏 <a href="./README.md"><b>中文</b></a> · <a href="./README_EN.md">English</a>
+</div>
 
-插件自动创建一条**同工作区的独立 DSH 会话**（命名 `❓追问·<主题>`），用**快速无思考模型**把主对话上下文压缩成小摘要后与引文一起注入，回答过程**完全不打断主对话**。追问会话在左侧边栏可见、可继续、可归档，并保持与主对话的从属关系（插件自维护映射）。会话先按划选文本首行**占位命名**，待首次回答完成后再用快速无思考模型基于「问题 + 回答」自动提炼最终标题。
+<div align="center">
+  <img alt="dsh-sidebar-qa demo" src="https://github.com/ChenRuoT/dsh-sidebar-qa/releases/download/v0.1.0/demo.gif" width="100%" />
+</div>
 
-![demo.gif](https://github.com/ChenRuoT/dsh-sidebar-qa/releases/download/v0.1.0/demo.gif)
+## ✨ 功能一览
+
+- **📝 划选提问**：对话中划选任意文本 → 浮层「提问」→ 右侧面板内嵌问答，全程不跳转大窗口
+- **🧠 智能摘要**：快速无思考模型把主对话上下文压缩成小摘要，与划选引文一起注入首条消息
+- **🔗 独立会话**：自动创建同工作区独立 DSH 会话（`❓追问·<主题>`），可继续、可归档，主对话零打断
+- **🪆 嵌套追问**：在追问对话里再划选提问，生成子追问，层层嵌套
+- **🗂️ 追问记录**：按根（主）会话分层树展示；限定当前工作区；节点可折叠、显示最近访问时间；点击跳转后追问记录 tab 保持开启
+- **🏷️ 两段式命名**：划选首行占位命名 → 首次回答完成后基于「问题 + 回答」自动提炼 ≤15 字最终标题
+- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调（设置页齿轮弹窗）
+
+> 🔌 **基于 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 开发的第三方拓展 Tab**，通过 `ctx.betterSidebar.registerTab` 注册；能力对等内置 tab，安装即用。
 
 ## 前置依赖（必装）
 
-`dsh-better-sidebar`  **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话）。
+`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话）。
 
 ```bash
 dsh plugin --profile web add dsh-better-sidebar
@@ -118,7 +138,7 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
 ```bash
 pnpm install
 pnpm build      # tsc 声明 + tsdown（lib/index.js + lib/client.js + lib/client-registry.js）
-pnpm test       # vitest 单测（injection / summarize / answer / store）
+pnpm test       # vitest 单测（injection / summarize / answer / store / history-scope / history-time）
 pnpm typecheck
 ```
 
