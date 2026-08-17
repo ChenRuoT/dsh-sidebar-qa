@@ -59,4 +59,19 @@ describe('createSidebarqaStore', () => {
     expect(store.isTitled('side1')).toBe(true)
     expect(store.isTitled('other')).toBe(false)
   })
+
+  it('toggles the 追问记录 collapse state per session and notifies listeners', () => {
+    const store = createSidebarqaStore()
+    let notified = 0
+    const off = store.subscribe(() => { notified += 1 })
+    expect(store.isCollapsed('main1')).toBe(false)
+    store.toggleCollapsed('main1')
+    expect(store.isCollapsed('main1')).toBe(true)
+    expect(notified).toBe(1)
+    store.toggleCollapsed('main1')
+    expect(store.isCollapsed('main1')).toBe(false)
+    expect(notified).toBe(2)
+    expect(store.isCollapsed('other')).toBe(false)
+    off()
+  })
 })

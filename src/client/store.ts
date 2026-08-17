@@ -12,6 +12,7 @@
  */
 const STORAGE_KEY = 'dsh-sidebar-qa:map'
 const TITLED_STORAGE_KEY = 'dsh-sidebar-qa:titled'
+const COLLAPSED_STORAGE_KEY = 'dsh-sidebar-qa:collapsed'
 
 /** A captured selection awaiting a question. */
 export interface PendingQuote {
@@ -48,6 +49,10 @@ export interface SidebarqaStore {
   isTitled(sessionId: string): boolean
   /** Mark a side session's post-answer retitle as attempted (fires once). */
   markTitled(sessionId: string): void
+  /** Whether a tree node's follow-up subtree is collapsed in 追问记录 (persisted). */
+  isCollapsed(sessionId: string): boolean
+  /** Flip a tree node's collapse state in 追问记录 (persisted). */
+  toggleCollapsed(sessionId: string): void
 }
 
 /** Parse the persisted map, tolerating any corruption. */
@@ -109,10 +114,33 @@ function saveTitled(sessions: Set<string>): void {
   }
 }
 
+/** Parse the persisted collapsed-session set (追问记录 fold state), tolerating corruption. */
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(COLLAPSED_STORAGE_KEY)
+    if (raw === null || raw === undefined || raw === '') return new Set()
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return new Set()
+    return new Set(parsed.filter((item): item is string => typeof item === 'string'))
+  } catch {
+    return new Set()
+  }
+}
+
+/** Persist the collapsed-session set (best-effort; localStorage may be unavailable). */
+function saveCollapsed(sessions: Set<string>): void {
+  try {
+    globalThis.localStorage?.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify([...sessions]))
+  } catch {
+    // ignore — the in-memory set remains authoritative for the session.
+  }
+}
+
 /** Create one store instance (call once per plugin activation). */
 export function createSidebarqaStore(): SidebarqaStore {
   let parentToChildren = loadMap()
   let titledSessions = loadTitled()
+  let collapsedSessions = loadCollapsed()
   let pendingBySession: Record<string, PendingQuote> = {}
   const listeners = new Set<() => void>()
   // The snapshot is cached so getSnapshot() returns a STABLE reference until a
@@ -189,6 +217,17 @@ export function createSidebarqaStore(): SidebarqaStore {
       next.add(sessionId)
       titledSessions = next
       saveTitled(titledSessions)
+    },
+    isCollapsed(sessionId: string): boolean {
+      return collapsedSessions.has(sessionId)
+    },
+    toggleCollapsed(sessionId: string): void {
+      const next = new Set(collapsedSessions)
+      if (next.has(sessionId)) next.delete(sessionId)
+      else next.add(sessionId)
+      collapsedSessions = next
+      saveCollapsed(collapsedSessions)
+      notify()
     },
   }
 }

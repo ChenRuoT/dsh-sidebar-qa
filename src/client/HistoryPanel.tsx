@@ -2,44 +2,97 @@
  * The `dsh-sidebar-qa:history` tab: every follow-up session grouped by its ROOT
  * (main) session, rendered as a layered tree (main → follow-up → nested
  * follow-up). Clicking a node jumps into it. The tree is driven by the
- * plugin's self-maintained parent→children mapping.
+ * plugin's self-maintained parent→children mapping, restricted to the CURRENT
+ * workspace: only sessions accounted in the workspace owning the active
+ * session are shown (mirror of the DSH runtime's current-workspace projection
+ * over the `workspaces` list, where each workspace carries its sessionIds).
+ *
+ * Rows with follow-ups (leaf nodes) carry a right-aligned fold button whose
+ * chevron rotates with the collapse state, and the row's most recent activity
+ * time to its left — the same compact relative label ("刚刚"/"5分钟"/…) the
+ * DSH left (workspace browser) panel uses.
  */
-import { useSyncExternalStore } from 'react'
-import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { Context, SidebarqaSessionListSnapshot, SidebarqaTabComponentProps } from '../context-types.ts'
 import type { SidebarqaStore } from './store.ts'
+import { filterHistoryToWorkspace, rootsOf, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
+import { timeLabel } from './history-time.ts'
 import css from './history-panel.module.css'
 
 interface HistoryPanelProps extends SidebarqaTabComponentProps {
   store: SidebarqaStore
 }
 
-export function HistoryPanel({ ctx, store }: HistoryPanelProps) {
+/** How often the relative-time labels refresh while the tab is visible. */
+const NOW_TICK_MS = 60_000
+
+export function HistoryPanel({ ctx, store, scope, visible }: HistoryPanelProps) {
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
-  const parentToChildren = snapshot.parentToChildren
 
-  // Roots = sessions that have children but are not themselves a child.
-  const childSet = new Set(Object.keys(snapshot.childToParent))
-  const roots = Object.keys(parentToChildren).filter(id => !childSet.has(id))
+  // The workspace feed (session↔workspace membership is not in the session
+  // list; the workspaces list is the authoritative projection).
+  const workspaceList = useSyncExternalStore(
+    (cb: () => void) => ctx.workspaces.list.subscribe(cb),
+    () => ctx.workspaces.list.getSnapshot(),
+  )
+  const sessionList = useSyncExternalStore(
+    (cb: () => void) => ctx.sessions.list.subscribe(cb),
+    () => ctx.sessions.list.getSnapshot(),
+  )
+
+  // Relative-time labels need a fresh "now" (mirror of the left panel's render
+  // clock); tick while the tab is visible so "5分钟" does not go stale.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!visible) return
+    const timer = window.setInterval(() => { setNow(Date.now()) }, NOW_TICK_MS)
+    return () => { window.clearInterval(timer) }
+  }, [visible])
+
+  // Current workspace = the one owning the active session (same projection as
+  // the DSH runtime's startSession). When no workspace can be resolved (no
+  // active session, or it is still ungrouped), fall back to the unfiltered
+  // tree so records are never hidden by an undeterminable scope.
+  const currentSessionId = scope.sessionId !== '' ? scope.sessionId : sessionList.current
+  const currentWorkspace = currentSessionId === undefined
+    ? undefined
+    : workspaceOwningSession(workspaceList.items, currentSessionId)
+  const parentToChildren = currentWorkspace === undefined
+    ? snapshot.parentToChildren
+    : filterHistoryToWorkspace(snapshot.parentToChildren, new Set(currentWorkspace.sessionIds))
+
+  const roots = rootsOf(parentToChildren)
 
   if (roots.length === 0) {
     return (
       <div className={css.root}>
-        <div className={css.empty}>还没有追问记录。在对话中划选文本并点击「提问」即可生成。</div>
+        <div className={css.empty}>
+          {currentWorkspace === undefined
+            ? '还没有追问记录。在对话中划选文本并点击「提问」即可生成。'
+            : '当前工作区暂无追问记录。在对话中划选文本并点击「提问」即可生成。'}
+        </div>
       </div>
     )
   }
 
   return (
     <div className={css.root} role="tree" aria-label="追问记录">
+      {currentWorkspace !== undefined && (
+        <div className={css.workspaceLabel}>当前工作区：{currentWorkspace.title || currentWorkspace.workspaceId}</div>
+      )}
       {roots.map((rootId) => (
         <TreeNode
           key={rootId}
           ctx={ctx}
           id={rootId}
           depth={0}
+          store={store}
+          sessionList={sessionList}
+          now={now}
           parentToChildren={parentToChildren}
         />
       ))}
@@ -52,27 +105,56 @@ function TreeNode(props: {
   ctx: Context
   id: string
   depth: number
+  store: SidebarqaStore
+  sessionList: SidebarqaSessionListSnapshot
+  now: number
   parentToChildren: Record<string, string[]>
 }) {
-  const { ctx, id, depth, parentToChildren } = props
+  const { ctx, id, depth, store, sessionList, now, parentToChildren } = props
   const children = parentToChildren[id] ?? []
   const isRoot = depth === 0
+  const hasChildren = children.length > 0
+  const collapsed = store.isCollapsed(id)
+
+  // The row's recent-activity time: the newest `updatedAt` across the whole
+  // subtree (a conversation group's "最近访问"), formatted like the left panel.
+  const updatedAt = subtreeLatestUpdatedAt(id, parentToChildren, sid => sessionList.byId[sid]?.updatedAt)
+  const time = updatedAt === undefined ? undefined : timeLabel(updatedAt, now)
+
   return (
     <div className={css.group}>
-      <button
-        type="button"
+      <div
         role="treeitem"
-        aria-expanded={children.length > 0}
         aria-level={depth + 1}
+        aria-expanded={hasChildren ? !collapsed : undefined}
         className={isRoot ? css.mainRow : css.sideRow}
-        onClick={() => { ctx.sessions.open(id) }}
       >
-        {isRoot && <span className={css.dot} />}
-        <span className={isRoot ? css.mainLabel : css.sideLabel}>
-          {isRoot ? '' : '❓ '}{titleOf(ctx, id)}
-        </span>
-      </button>
-      {children.length > 0 && (
+        <button
+          type="button"
+          className={css.rowOpen}
+          onClick={() => { openConversation(ctx, id, sessionList.byId[id]?.cwd) }}
+        >
+          {isRoot && <span className={css.dot} />}
+          <span className={isRoot ? css.mainLabel : css.sideLabel}>
+            {titleOf(ctx, id)}
+          </span>
+        </button>
+        {time !== undefined && <span className={css.time}>{time}</span>}
+        {hasChildren ? (
+          <button
+            type="button"
+            className={css.collapse}
+            aria-label={collapsed ? '展开追问' : '折叠追问'}
+            aria-expanded={!collapsed}
+            onClick={() => { store.toggleCollapsed(id) }}
+          >
+            <IconTriangleRightFill14 className={collapsed ? css.arrow : `${css.arrow} ${css.arrowOpen}`} />
+          </button>
+        ) : (
+          <span className={css.collapseSpacer} aria-hidden="true" />
+        )}
+      </div>
+      {hasChildren && !collapsed && (
         <div role="group" className={css.children}>
           {children.map((childId) => (
             <TreeNode
@@ -80,6 +162,9 @@ function TreeNode(props: {
               ctx={ctx}
               id={childId}
               depth={depth + 1}
+              store={store}
+              sessionList={sessionList}
+              now={now}
               parentToChildren={parentToChildren}
             />
           ))}
@@ -99,4 +184,20 @@ function titleOf(ctx: Context, id: string): string {
     // fall through to the id
   }
   return id
+}
+
+/**
+ * Jump into a conversation from the 追问记录 tree, keeping the 追问记录 tab
+ * open in the TARGET session's sidebar state: `sessions.open` switches the
+ * active conversation, then `betterSidebar.openTab(seed, scope)` lands the
+ * tab in that session's state — focusing it if already open, creating it if
+ * not — regardless of what tabs the target session had before (better-sidebar
+ * v0.12+ targeted open; the tab is `single: true`, so the dedupe focuses).
+ */
+function openConversation(ctx: Context, sessionId: string, cwd: string | undefined): void {
+  ctx.sessions.open(sessionId)
+  ctx.betterSidebar.openTab(
+    { type: 'dsh-sidebar-qa:history' },
+    { sessionId, ...(cwd === undefined ? {} : { cwd }) },
+  )
 }

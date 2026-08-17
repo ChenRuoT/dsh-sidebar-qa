@@ -18,28 +18,58 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
+.workspaceLabel {
+  color: var(--dsw-alias-label-dimmed);
+  font-size: 12px;
+  padding: 0 8px;
+  word-break: break-word;
+}
+
 .group {
   display: flex;
   flex-direction: column;
 }
 
+/* One tree row: the open button (title, flex:1) + optional time + fold button. */
 .mainRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.mainRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sideRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.sideRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The clickable open part of a row (dot + label). */
+.rowOpen {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   appearance: none;
   border: none;
   background: transparent;
-  color: var(--dsw-alias-label-primary);
+  color: inherit;
   text-align: left;
   font-size: 13px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 0;
   cursor: pointer;
-}
-
-.mainRow:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .dot {
@@ -55,6 +85,56 @@
   word-break: break-word;
 }
 
+.sideLabel {
+  color: var(--dsw-alias-state-business-primary);
+  word-break: break-word;
+}
+
+/* Recent-activity time, same compact style as the DSH left panel's row label. */
+.time {
+  flex: none;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* The right-aligned fold button; chevron rotates with the collapse state. */
+.collapse {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.collapse:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Invisible placeholder on rows without follow-ups: keeps the time label at
+   the same right-aligned column as rows that carry the fold button. */
+.collapseSpacer {
+  flex: none;
+  width: 18px;
+}
+
+.arrow {
+  display: block;
+  transition: transform 150ms var(--ds-ease-in-out);
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
+
 .children {
   display: flex;
   flex-direction: column;
@@ -63,32 +143,9 @@
   border-left: 1px solid var(--dsw-alias-border-l2);
 }
 
-.sideRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-state-business-primary);
-  text-align: left;
-  font-size: 13px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.sideRow:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 .connector {
   width: 10px;
   height: 1px;
   background: var(--dsw-alias-border-l2);
   flex: none;
-}
-
-.sideLabel {
-  word-break: break-word;
 }

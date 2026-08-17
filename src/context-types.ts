@@ -167,10 +167,19 @@ export interface SidebarqaTabComponentProps {
 /** The betterSidebar registry service published as `ctx.betterSidebar`. */
 export interface SidebarqaBetterSidebarService {
   registerTab(descriptor: SidebarqaTabDescriptor): () => void
-  openTab(seed: { type: string; title?: string; id?: string; path?: string; url?: string }): void
+  /**
+   * Open (or focus) a tab. `scope` (v0.12.0+ targeted open) names the session
+   * whose sidebar state receives the open — the tab lands there even when that
+   * session is not the one on screen, and the UI's active session is not
+   * switched. Omitted scope targets the active session.
+   */
+  openTab(
+    seed: { type: string; title?: string; id?: string; path?: string; url?: string },
+    scope?: { sessionId: string; cwd?: string },
+  ): void
 }
 
-/** One session list row the client reads (display title + lineage + cwd). */
+/** One session list row the client reads (display title + lineage + cwd + activity). */
 export interface SidebarqaSessionSummary {
   id: string
   title?: string
@@ -180,6 +189,8 @@ export interface SidebarqaSessionSummary {
   origin?: 'subagent'
   running: boolean
   blank: boolean
+  /** Epoch ms of the session's last activity (the left panel's "最近访问" source). */
+  updatedAt?: number
 }
 
 /** The client session list snapshot this plugin subscribes to. */

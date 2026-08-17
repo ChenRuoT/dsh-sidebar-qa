@@ -34,7 +34,7 @@ dsh plugin --profile web add <本仓库路径>
 2. 右侧「追问」面板变成一条**内嵌对话**：引文/问题在侧边栏内流式回答，输入框固定在下方面板底部，**不会跳转到子对话大窗口**。
 3. 回答过程中可在输入框继续追问（Enter 发送、Shift+Enter 换行），所有问答都在侧边栏内完成。
 4. 每个追问仍是同工作区的独立会话（`❓追问·<主题>`），主对话零打断；追问可以**嵌套**（在追问对话里再划选提问会生成新的子追问）。
-5. 侧边栏「追问记录」tab 按根（主）会话分组，以分层树列出所有（嵌套）追问，点击跳转。
+5. 侧边栏「追问记录」tab 按根（主）会话分组，以分层树列出**当前工作区**内的所有（嵌套）追问（归属判定：当前会话所在工作区，见 `src/client/history-scope.ts`），点击跳转。有子追问的节点右侧有**折叠按钮**（箭头随折叠状态旋转）收纳子树，其左侧显示该对话组**最近访问时间**（相对标签，复用 DSH 左侧面板的样式与数据源 `sessions.list.updatedAt`）。跳转后目标会话的**追问记录 tab 保持开启**（定向 `openTab(seed, scope)`，已打开则聚焦、未打开则新建）。
 
 ## 配置
 
@@ -69,7 +69,9 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── selection.ts        选区捕获与校验（单消息/非流式/≤2000 字符）
     ├── SelectionPopover.tsx 划选浮层「提问」按钮
     ├── AskPanel.tsx         追问 tab（内嵌对话：流式 transcript + 底部输入框 + 追问切换）
-    ├── HistoryPanel.tsx     追问记录 tab（根会话→嵌套追问 分层树）
+    ├── HistoryPanel.tsx     追问记录 tab（分层树：折叠按钮 + 最近访问时间 + 工作区限定）
+    ├── history-scope.ts     工作区归属解析 + 树过滤 + 子树最近访问时间（纯函数，可测）
+    ├── history-time.ts      相对时间分桶 + 中文标签（纯函数，可测，复用左侧面板样式）
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成

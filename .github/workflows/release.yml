@@ -1,0 +1,60 @@
+name: Release
+
+# Publish to npm + create a GitHub Release whenever a `v*` tag is pushed.
+# The tag name MUST equal `v<package.json version>` (enforced below), so a
+# single `pnpm version patch|minor|major` keeps git, npm, and GitHub in lockstep.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # allow creating the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - name: Verify the git tag matches package.json version
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "::error::tag '$GITHUB_REF_NAME' does not match package.json version '$expected'"
+            exit 1
+          fi
+
+      - name: Configure npm auth
+        run: |
+          echo "registry=https://registry.npmjs.org/" > ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        run: pnpm publish --no-git-checks
+
+      - name: Pack tarball for the GitHub Release
+        run: pnpm pack --pack-destination ./dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tgz
+          generate_release_notes: true

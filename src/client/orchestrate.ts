@@ -10,6 +10,7 @@
  * follow-ups are supported by the same flow.
  */
 import type { Context } from '../context-types.ts'
+import { workspaceOwningSession } from './history-scope.ts'
 import { currentModelOf, sidebarqaApi, type SidebarqaConfigView, type SummarizeResult } from './api.ts'
 import { buildFirstMessage, followUpTitle, parseUserMessage, topicFromQuote } from './injection.ts'
 import { hasTurnEnded, transcriptOf } from './answer.ts'
@@ -30,8 +31,7 @@ export type AskPhase = 'summarizing' | 'answering'
 /** Find the workspace id owning a session (undefined when ungrouped). */
 function resolveWorkspaceId(ctx: Context, sessionId: string): string | undefined {
   try {
-    return ctx.workspaces.list.getSnapshot().items
-      .find(workspace => workspace.sessionIds.includes(sessionId))?.workspaceId
+    return workspaceOwningSession(ctx.workspaces.list.getSnapshot().items, sessionId)?.workspaceId
   } catch {
     return undefined
   }
