@@ -12,6 +12,7 @@ import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
 import { transcriptOf, type TranscriptMessage } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
+import { resolveMetaQuote, consumeMetaQuote } from './meta-quote.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
@@ -32,7 +33,11 @@ export function AskPanel(props: AskPanelProps) {
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
-  const pendingQuote = snapshot.pendingBySession[sessionId] ?? null
+  // Cross-plugin seam: a quote handed over through `openTab({ meta: { quote } })`
+  // (e.g. dsh-sidebar-preview-select's preview selection) takes precedence over
+  // the store's pending quote; the store path stays the popover's channel.
+  const metaQuote = resolveMetaQuote(props.tab.meta)
+  const pendingQuote = metaQuote ?? snapshot.pendingBySession[sessionId] ?? null
   const children = snapshot.parentToChildren[sessionId] ?? []
 
   const sessionList = useSyncExternalStore(
@@ -124,6 +129,11 @@ export function AskPanel(props: AskPanelProps) {
         )
         setActiveChildId(result.sideSessionId)
         store.setPendingQuote(sessionId, null)
+        // Consume a meta-carried quote after it was sent, so refocusing the tab
+        // (or a page reload, where the meta persists) never resurfaces it.
+        if (metaQuote !== null) {
+          ctx.betterSidebar.updateTab(props.tab.id, { meta: consumeMetaQuote(props.tab.meta) })
+        }
         setPhase('answering')
       } else {
         await sendFollowUp(ctx, activeChildId, q)
