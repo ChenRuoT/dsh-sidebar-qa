@@ -43,3 +43,17 @@ export function consumeMetaQuote(meta: unknown): unknown {
   const { quote: _quote, ...rest } = record
   return rest
 }
+
+/**
+ * The panel's view mode. A pending quote only owns the view while no
+ * follow-up is selected: picking an existing child in the switcher returns to
+ * that conversation (the quote stays parked for the 新追问 button), and
+ * cancelling the quote without children falls back to the empty hint.
+ * @param hasQuote - whether a pending quote (store or meta) is present.
+ * @param activeChildId - the selected follow-up session, or null.
+ * @returns the view mode.
+ */
+export function resolveAskMode(hasQuote: boolean, activeChildId: string | null): 'start' | 'conversation' | 'empty' {
+  if (activeChildId !== null) return 'conversation'
+  return hasQuote ? 'start' : 'empty'
+}

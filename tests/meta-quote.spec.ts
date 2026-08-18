@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveMetaQuote, consumeMetaQuote } from '../src/client/meta-quote.ts'
+import { resolveMetaQuote, consumeMetaQuote, resolveAskMode } from '../src/client/meta-quote.ts'
 
 describe('resolveMetaQuote', () => {
   it('reads a plain text quote off the meta slot', () => {
@@ -42,5 +42,23 @@ describe('consumeMetaQuote', () => {
     expect(consumeMetaQuote(undefined)).toBeUndefined()
     expect(consumeMetaQuote(null)).toBeNull()
     expect(consumeMetaQuote('x')).toBe('x')
+  })
+})
+
+describe('resolveAskMode', () => {
+  it('starts a new follow-up when a quote is parked and nothing is selected', () => {
+    expect(resolveAskMode(true, null)).toBe('start')
+  })
+
+  it('returns to the selected conversation even while a quote is parked (switcher regression)', () => {
+    expect(resolveAskMode(true, 'child-a')).toBe('conversation')
+  })
+
+  it('shows the empty hint without a quote and without a selection', () => {
+    expect(resolveAskMode(false, null)).toBe('empty')
+  })
+
+  it('stays in conversation without a quote once a child is selected', () => {
+    expect(resolveAskMode(false, 'child-a')).toBe('conversation')
   })
 })
