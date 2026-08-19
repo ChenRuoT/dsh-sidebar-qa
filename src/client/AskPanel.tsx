@@ -12,6 +12,7 @@ import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
 import { transcriptOf, type TranscriptMessage } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
+import { resolveMetaQuote, consumeMetaQuote, resolveAskMode } from './meta-quote.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
@@ -32,7 +33,11 @@ export function AskPanel(props: AskPanelProps) {
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
-  const pendingQuote = snapshot.pendingBySession[sessionId] ?? null
+  // Cross-plugin seam: a quote handed over through `openTab({ meta: { quote } })`
+  // (e.g. dsh-sidebar-preview-select's preview selection) takes precedence over
+  // the store's pending quote; the store path stays the popover's channel.
+  const metaQuote = resolveMetaQuote(props.tab.meta)
+  const pendingQuote = metaQuote ?? snapshot.pendingBySession[sessionId] ?? null
   const children = snapshot.parentToChildren[sessionId] ?? []
 
   const sessionList = useSyncExternalStore(
@@ -124,6 +129,9 @@ export function AskPanel(props: AskPanelProps) {
         )
         setActiveChildId(result.sideSessionId)
         store.setPendingQuote(sessionId, null)
+        // Consume a meta-carried quote after it was sent, so refocusing the tab
+        // (or a page reload, where the meta persists) never resurfaces it.
+        consumeMeta()
         setPhase('answering')
       } else {
         await sendFollowUp(ctx, activeChildId, q)
@@ -137,7 +145,29 @@ export function AskPanel(props: AskPanelProps) {
   }
 
   const busy = phase === 'asking'
-  const mode = pendingQuote !== null ? 'start' : activeChildId !== null ? 'conversation' : 'empty'
+  // A parked quote only owns the view while no follow-up is selected: the
+  // switcher can always return to an existing conversation, and the 新追问
+  // button returns to the parked quote (see resolveAskMode).
+  const mode = resolveAskMode(pendingQuote !== null, activeChildId)
+
+  // Consume the meta-carried quote channel once (send or cancel both count).
+  const consumeMeta = (): void => {
+    if (metaQuote !== null) {
+      ctx.betterSidebar.updateTab(props.tab.id, { meta: consumeMetaQuote(props.tab.meta) })
+    }
+  }
+
+  // Cancel a parked quote: clear both channels and return to the latest
+  // follow-up when one exists, else the empty hint.
+  const clearQuote = (): void => {
+    store.setPendingQuote(sessionId, null)
+    consumeMeta()
+    const list = store.childrenOf(sessionId)
+    setActiveChildId(list.length > 0 ? (list[list.length - 1] ?? null) : null)
+    setMessages([])
+    setPhase('idle')
+    setError(null)
+  }
 
   return (
     <div className={css.root}>
@@ -173,7 +203,10 @@ export function AskPanel(props: AskPanelProps) {
             {pendingQuote !== null && pendingQuote.text !== ''
               ? (
                 <div className={css.quoteChip}>
-                  <div className={css.quoteChipHead}>引文</div>
+                  <div className={css.quoteChipHead}>
+                    引文
+                    <button type="button" className={css.quoteCancel} onClick={clearQuote}>取消</button>
+                  </div>
                   <div className={css.quoteChipText}>{pendingQuote.text}</div>
                 </div>
               )

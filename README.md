@@ -99,6 +99,18 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     └── api.ts              /sidebarqa/api fetch 封装 + 当前模型读取
 ```
 
+### 跨插件 seam（meta.quote）
+
+外部插件可以打开追问 tab 并**预填引文**（不经本插件的划选浮层）：通过 better-sidebar 的 `openTab` seed 携带 `meta`：
+
+```ts
+ctx.betterSidebar.openTab(
+  { type: 'dsh-sidebar-qa:ask', meta: { quote: { text: '选中的内容', role: 'user' } } },
+)
+```
+
+面板优先显示 `meta.quote`（形状校验：`text` 为非空字符串；可选透传 `role` / `messageId`），回退到本插件浮层的 pending 引文；用户输入问题发送后引文即被消费（`updateTab` 清除），刷新/再次聚焦不会复现旧引文。`<quoted_context>` 的 `source` 标签沿用 `agent-history`。
+
 ### 关键数据流
 
 ```

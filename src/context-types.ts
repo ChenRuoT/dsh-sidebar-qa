@@ -160,7 +160,7 @@ export interface SidebarqaTabDescriptor {
 export interface SidebarqaTabComponentProps {
   ctx: Context
   scope: { sessionId: string; cwd?: string }
-  tab: { id: string; type: string; title: string; path?: string; diff?: unknown }
+  tab: { id: string; type: string; title: string; path?: string; diff?: unknown; meta?: unknown }
   visible: boolean
 }
 
@@ -171,12 +171,19 @@ export interface SidebarqaBetterSidebarService {
    * Open (or focus) a tab. `scope` (v0.12.0+ targeted open) names the session
    * whose sidebar state receives the open — the tab lands there even when that
    * session is not the one on screen, and the UI's active session is not
-   * switched. Omitted scope targets the active session.
+   * switched. Omitted scope targets the active session. `meta` (v0.13.0+
+   * better-sidebar) carries JSON-serializable custom state onto the tab —
+   * external plugins use `meta.quote` to hand this panel a pending quote.
    */
   openTab(
-    seed: { type: string; title?: string; id?: string; path?: string; url?: string },
+    seed: { type: string; title?: string; id?: string; path?: string; url?: string; meta?: unknown },
     scope?: { sessionId: string; cwd?: string },
   ): void
+  /**
+   * Update one open tab's display fields (better-sidebar v0.12.0+). Unknown
+   * tab ids are a no-op. Used to consume a `meta.quote` after it was sent.
+   */
+  updateTab(tabId: string, patch: { title?: string; path?: string; meta?: unknown }): void
 }
 
 /** One session list row the client reads (display title + lineage + cwd + activity). */
