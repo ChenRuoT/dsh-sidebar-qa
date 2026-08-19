@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { SidebarqaHistoryEntry } from '../src/context-types.ts'
-import { answerTextOf, hasTurnEnded, textOfAssistantMessage, textOfUserMessage, transcriptOf } from '../src/client/answer.ts'
+import {
+  answerTextOf,
+  hasSeedHistory,
+  hasTurnEnded,
+  lastEndSeedIndex,
+  textOfAssistantMessage,
+  textOfUserMessage,
+  transcriptOf,
+  transcriptRowsOf,
+} from '../src/client/answer.ts'
 
 function entry(type: string, data: Record<string, unknown>, seq = 0): SidebarqaHistoryEntry {
   return { event: { type, seq, time: 0, data } }
@@ -114,6 +123,83 @@ describe('answerTextOf', () => {
       entry('assistant/message', { message: { content: [{ type: 'text', text: 'hi' }] } }, 3),
     ]
     expect(answerTextOf(events)).toBe('hi')
+  })
+})
+
+describe('lastEndSeedIndex / hasSeedHistory', () => {
+  it('finds the end-seed marker of a fork child', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '父对话问题' }] }, 0),
+      entry('assistant/message', { message: { content: [{ type: 'text', text: '父对话回答' }] } }, 1),
+      entry('session/end-seed', {}, 2),
+      entry('user/message', { content: [{ type: 'text', text: '追问' }] }, 3),
+    ]
+    expect(lastEndSeedIndex(events)).toBe(2)
+    expect(hasSeedHistory(events)).toBe(true)
+  })
+
+  it('returns -1 / false for a plain (non-fork) session', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '问题' }] }, 0),
+      entry('assistant/message', { message: { content: [{ type: 'text', text: '回答' }] } }, 1),
+    ]
+    expect(lastEndSeedIndex(events)).toBe(-1)
+    expect(hasSeedHistory(events)).toBe(false)
+  })
+
+  it('takes the LAST marker for nested forks (the child\'s own boundary)', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '祖父对话' }] }, 0),
+      entry('session/end-seed', {}, 1),
+      entry('user/message', { content: [{ type: 'text', text: '父追问' }] }, 2),
+      entry('assistant/message', { message: { content: [{ type: 'text', text: '父回答' }] } }, 3),
+      entry('session/end-seed', {}, 4),
+      entry('user/message', { content: [{ type: 'text', text: '孙追问' }] }, 5),
+    ]
+    expect(lastEndSeedIndex(events)).toBe(4)
+  })
+
+  it('is empty-safe', () => {
+    expect(lastEndSeedIndex([])).toBe(-1)
+    expect(hasSeedHistory([])).toBe(false)
+  })
+})
+
+describe('transcriptRowsOf', () => {
+  it('carries each row\'s event seq', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '问题' }] }, 3),
+      entry('assistant/message', { message: { content: [{ type: 'text', text: '回答' }] } }, 4),
+    ]
+    expect(transcriptRowsOf(events)).toEqual([
+      { role: 'user', text: '问题', seq: 3 },
+      { role: 'assistant', text: '回答', seq: 4 },
+    ])
+  })
+
+  it('gives the in-flight aggregate the last chunk seq', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '问题' }] }, 1),
+      entry('assistant/chunk', { chunk: { type: 'text-delta', text: '还' } }, 2),
+      entry('assistant/chunk', { chunk: { type: 'text-delta', text: '在写' } }, 3),
+    ]
+    expect(transcriptRowsOf(events)).toEqual([
+      { role: 'user', text: '问题', seq: 1 },
+      { role: 'assistant', text: '还在写', seq: 3 },
+    ])
+  })
+
+  it('mirrors transcriptOf content (drops snapshots, folds chunks)', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '问题' }], source: { kind: 'user' } }, 1),
+      entry('user/message', {
+        content: [{ type: 'text', text: 'Current runtime context…' }],
+        source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+      }, 2),
+      entry('assistant/message', { message: { content: [{ type: 'text', text: '回答' }] } }, 3),
+    ]
+    expect(transcriptRowsOf(events).map(({ role, text }) => ({ role, text })))
+      .toEqual(transcriptOf(events))
   })
 })
 

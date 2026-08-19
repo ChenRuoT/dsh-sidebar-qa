@@ -1,8 +1,10 @@
 /**
- * Typed fetch wrapper over the /sidebarqa JSON API (the host half's summarize
- * route). Mirrors the wire envelope `{ok: true, value} | {ok: false, error}`.
+ * Typed fetch wrapper over the /sidebarqa JSON API (the host half's context
+ * method — the three history strategies — plus title and config). Mirrors the
+ * wire envelope `{ok: true, value} | {ok: false, error}`.
  */
 import type { Context } from '../context-types.ts'
+import type { SidebarqaHistoryStrategy } from '../config.ts'
 
 /** One wire failure. */
 export class SidebarqaApiError extends Error {
@@ -14,10 +16,11 @@ export class SidebarqaApiError extends Error {
   }
 }
 
-/** Result of one summarize call (mirror of the host SummarizeResult). */
-export interface SummarizeResult {
+/** Result of one context call (mirror of the host SidebarqaContextResult). */
+export interface ContextResult {
   degraded: boolean
-  summary: string | null
+  /** The injected context text (`null` for `inherit` or on failure). */
+  text: string | null
   sourceSeq: number
   reason?: string
 }
@@ -54,6 +57,8 @@ async function call<T>(method: string, payload: Record<string, unknown>, signal?
 
 /** Resolved sidebarqa configuration (mirror of the host SidebarqaConfig). */
 export interface SidebarqaConfigView {
+  historyStrategy: SidebarqaHistoryStrategy
+  trimWindowMessages: number
   summarizeProvider: string
   summarizeModel: string
   summarizeReasoningEffort: string
@@ -74,8 +79,8 @@ export interface SidebarqaConfigEnvelope {
 
 /** The sidebarqa API surface (session scope-free; the route fences itself). */
 export const sidebarqaApi = {
-  summarize: (payload: Record<string, unknown>, signal?: AbortSignal) =>
-    call<SummarizeResult>('summarize', payload, signal),
+  context: (payload: Record<string, unknown>, signal?: AbortSignal) =>
+    call<ContextResult>('context', payload, signal),
   title: (payload: Record<string, unknown>, signal?: AbortSignal) =>
     call<TitleResult>('title', payload, signal),
   config: (signal?: AbortSignal) =>
@@ -94,7 +99,7 @@ export async function currentModelOf(ctx: Context, sessionId: string): Promise<{
   try {
     const response = await ctx.connection.api.sessions.models({ sessionId })
     if (!response.result.ok) return undefined
-    return response.result.value.current
+    return response.result.value.current ?? undefined
   } catch {
     return undefined
   }

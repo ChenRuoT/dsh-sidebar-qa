@@ -1,11 +1,15 @@
 /**
- * dsh-sidebar-qa host half: the /sidebarqa JSON API (the summarize method only) and
- * the `sidebarqa` settings namespace (fast-model channel / budget / window). The
- * summarize method reads the main session's current model surface through
- * `ctx.sessionQuery.readSurface`, compresses it with a fast no-thinking model
- * through `ctx.llm.stream`, and caches by (mainSessionId, sourceSeq). Any
- * failure degrades to `{ degraded: true }` — the client then skips the summary
- * block and still answers.
+ * dsh-sidebar-qa host half: the /sidebarqa JSON API (the context method — the
+ * three history strategies — plus title and config) and the `sidebarqa`
+ * settings namespace (fast-model channel / budget / window / strategy). The
+ * context method reads the main session's current model surface through
+ * `ctx.sessionQuery.readSurface` and, per strategy:
+ * - `inherit`: nothing to assemble — the client forks the parent instead.
+ * - `compressed`: compress the EARLIER window with a fast no-thinking model
+ *   through `ctx.llm.stream` and keep the RECENT band verbatim.
+ * - `trim`: keep the last `trimWindowMessages` segments verbatim, no model.
+ * Any failure degrades to `{ degraded: true }` — the client then skips the
+ * context block and still answers.
  *
  * The route passes the same browser-trust fence as the /api gateway
  * (Host-header loopback or the connection row's `trustedHosts`).
@@ -17,11 +21,13 @@ import {
   SIDEBARQA_SETTINGS_NS,
   SidebarqaPrefsSchema,
   type SidebarqaConfig,
+  type SidebarqaHistoryStrategy,
 } from './config.ts'
 import {
   assembleText,
   BACKGROUND_SEGMENT_MAX,
   BACKGROUND_SYSTEM,
+  buildTrimContext,
   composeSummary,
   extractSegments,
   formatBackground,
@@ -40,11 +46,12 @@ import {
 import type { SidebarqaLlmMessage, SidebarqaSettingsScope, SidebarqaSettingsService } from './context-types.ts'
 
 export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
-export type { SidebarqaConfig, SidebarqaReasoningEffort } from './config.ts'
+export type { SidebarqaConfig, SidebarqaHistoryStrategy, SidebarqaReasoningEffort } from './config.ts'
 export type { Context } from './context-types.ts'
 export {
   assembleText,
   BACKGROUND_SYSTEM,
+  buildTrimContext,
   composeSummary,
   extractSegments,
   formatBackground,
@@ -66,10 +73,11 @@ const SUMMARIZE_TIMEOUT_MS = 8000
 /** How long a title call may run before degrading. */
 const TITLE_TIMEOUT_MS = 8000
 
-/** Result of one summarize call (the client branches on `degraded`). */
-export interface SummarizeResult {
+/** Result of one context call (the client branches on `degraded`). */
+export interface SidebarqaContextResult {
   degraded: boolean
-  summary: string | null
+  /** The injected context text (`null` for `inherit` or on failure). */
+  text: string | null
   sourceSeq: number
   reason?: string
 }
@@ -157,10 +165,19 @@ function buildApi(
         throw new SidebarqaError('settings-rejected', error instanceof Error ? error.message : String(error), 400)
       }
     },
-    summarize: async (payload): Promise<SummarizeResult> => {
+    context: async (payload): Promise<SidebarqaContextResult> => {
       const mainSessionId = requireString(payload, 'mainSessionId')
-      const record = payload as { provider?: unknown; model?: unknown; budgetTokens?: unknown }
+      const record = payload as { strategy?: unknown; provider?: unknown; model?: unknown; budgetTokens?: unknown }
       const config = getConfig()
+      const strategy: SidebarqaHistoryStrategy =
+        record.strategy === 'inherit' || record.strategy === 'trim' ? record.strategy : 'compressed'
+
+      // `inherit` needs no context text — the client forks the parent and the
+      // full history travels with the seed; there is nothing to assemble here.
+      if (strategy === 'inherit') {
+        return { degraded: false, text: null, sourceSeq: -1 }
+      }
+
       const provider = typeof record.provider === 'string' && record.provider !== ''
         ? record.provider
         : config.summarizeProvider
@@ -175,15 +192,22 @@ function buildApi(
       const surface = await ctx.sessionQuery.readSurface(mainSessionId)
       const sourceSeq = surface.capturedThroughSeq ?? -1
 
-      // Cache hit: same source seq → reuse the previous summary.
-      const cached = cache.get(mainSessionId)
-      if (cached !== undefined && cached.sourceSeq === sourceSeq) {
-        return { degraded: false, summary: cached.summary, sourceSeq }
+      // `trim`: the last N segments verbatim — deterministic and free, no model.
+      if (strategy === 'trim') {
+        const text = buildTrimContext(extractSegments(surface.events), config.trimWindowMessages)
+        if (text === '') return { degraded: true, text: null, sourceSeq, reason: 'empty-surface' }
+        return { degraded: false, text, sourceSeq }
       }
 
-      // Asymmetric window: the RECENT messages pass through near-verbatim (they
-      // anchor the follow-up to the latest state); only the EARLIER background
-      // goes to the fast model for compression.
+      // `compressed`: asymmetric window — the RECENT messages pass through
+      // near-verbatim (they anchor the follow-up to the latest state); only the
+      // EARLIER background goes to the fast model for compression.
+      const cacheKey = `${strategy}:${mainSessionId}`
+      const cached = cache.get(cacheKey)
+      if (cached !== undefined && cached.sourceSeq === sourceSeq) {
+        return { degraded: false, text: cached.summary, sourceSeq }
+      }
+
       const { earlier, recent } = splitRecent(extractSegments(surface.events), config.recentWindowMessages)
       const recentText = formatSegments(recent, RECENT_SEGMENT_MAX)
       // Hand the background to the model NEWEST-FIRST so the current progress
@@ -213,12 +237,12 @@ function buildApi(
         }
       }
 
-      const summary = composeSummary(background, recentText)
-      if (summary.trim() === '') {
-        return { degraded: true, summary: null, sourceSeq, reason: 'empty-surface' }
+      const text = composeSummary(background, recentText)
+      if (text.trim() === '') {
+        return { degraded: true, text: null, sourceSeq, reason: 'empty-surface' }
       }
-      cache.set(mainSessionId, { sourceSeq, summary })
-      return { degraded: false, summary, sourceSeq }
+      cache.set(cacheKey, { sourceSeq, summary: text })
+      return { degraded: false, text, sourceSeq }
     },
     title: async (payload): Promise<TitleResult> => {
       const text = requireString(payload, 'text')

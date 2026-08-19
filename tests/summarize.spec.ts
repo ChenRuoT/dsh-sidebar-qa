@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SidebarqaSurfaceEvent } from '../src/context-types.ts'
 import {
   assembleText,
+  buildTrimContext,
   composeSummary,
   extractSegments,
   formatBackground,
@@ -127,6 +128,36 @@ describe('formatBackground', () => {
   it('bounds each segment', () => {
     const segments = [{ role: 'assistant' as const, text: 'abcdefghij' }]
     expect(formatBackground(segments, 5, 5)).toBe('助手：abcde…')
+  })
+})
+
+describe('buildTrimContext', () => {
+  const segments = [
+    { role: 'user' as const, text: 'q1' },
+    { role: 'assistant' as const, text: 'a1' },
+    { role: 'user' as const, text: 'q2' },
+    { role: 'assistant' as const, text: 'a2' },
+  ]
+
+  it('keeps the last N segments verbatim in model order', () => {
+    expect(buildTrimContext(segments, 2, 1000)).toBe('用户：q2\n\n助手：a2')
+  })
+
+  it('keeps the whole tail when count exceeds the segment count', () => {
+    expect(buildTrimContext(segments, 10, 1000)).toBe('用户：q1\n\n助手：a1\n\n用户：q2\n\n助手：a2')
+  })
+
+  it('bounds each segment like the other windows', () => {
+    expect(buildTrimContext(segments, 1, 1)).toBe('助手：a…')
+  })
+
+  it('returns empty for a zero or negative count', () => {
+    expect(buildTrimContext(segments, 0, 1000)).toBe('')
+    expect(buildTrimContext(segments, -3, 1000)).toBe('')
+  })
+
+  it('returns empty for an empty segment list', () => {
+    expect(buildTrimContext([], 5, 1000)).toBe('')
   })
 })
 

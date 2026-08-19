@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIG_FIELDS, REASONING_EFFORT_OPTIONS, coerceNumberField } from '../src/client/config-fields.ts'
+import {
+  CONFIG_FIELDS,
+  HISTORY_STRATEGY_OPTIONS,
+  REASONING_EFFORT_OPTIONS,
+  coerceNumberField,
+} from '../src/client/config-fields.ts'
 
 describe('coerceNumberField', () => {
   it('parses and clamps to the declared range', () => {
@@ -30,8 +35,15 @@ describe('CONFIG_FIELDS', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it('covers the full config surface (10 fields)', () => {
-    expect(CONFIG_FIELDS).toHaveLength(10)
+  it('covers the surfaced config surface (8 fields)', () => {
+    expect(CONFIG_FIELDS).toHaveLength(8)
+  })
+
+  it('keeps the compression internals off the panel', () => {
+    const keys = CONFIG_FIELDS.map(field => field.key)
+    for (const hidden of ['summarizeBudgetTokens', 'recentWindowMessages', 'backgroundWindowMessages', 'titleBudgetTokens']) {
+      expect(keys).not.toContain(hidden)
+    }
   })
 
   it('gives every number field a min and max', () => {
@@ -50,10 +62,29 @@ describe('CONFIG_FIELDS', () => {
       expect(field?.options).toBe(REASONING_EFFORT_OPTIONS)
     }
   })
+
+  it('declares the history strategy as a select over the three modes', () => {
+    const field = CONFIG_FIELDS.find(candidate => candidate.key === 'historyStrategy')
+    expect(field?.type).toBe('select')
+    expect(field?.options).toBe(HISTORY_STRATEGY_OPTIONS)
+  })
+
+  it('declares the trim window as a bounded number row', () => {
+    const field = CONFIG_FIELDS.find(candidate => candidate.key === 'trimWindowMessages')
+    expect(field?.type).toBe('number')
+    expect(field?.min).toBe(1)
+    expect(field?.max).toBe(256)
+  })
 })
 
 describe('REASONING_EFFORT_OPTIONS', () => {
   it('offers exactly Off / High / Max', () => {
     expect(REASONING_EFFORT_OPTIONS.map(option => option.value)).toEqual(['off', 'high', 'max'])
+  })
+})
+
+describe('HISTORY_STRATEGY_OPTIONS', () => {
+  it('offers exactly inherit / compressed / trim', () => {
+    expect(HISTORY_STRATEGY_OPTIONS.map(option => option.value)).toEqual(['inherit', 'compressed', 'trim'])
   })
 })

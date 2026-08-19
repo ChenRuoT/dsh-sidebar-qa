@@ -12,8 +12,23 @@ export const SIDEBARQA_SETTINGS_NS = 'sidebarqa'
 /** DSH reasoning-effort vocabulary: Off / High / Max. */
 export type SidebarqaReasoningEffort = 'off' | 'high' | 'max'
 
+/**
+ * The side-question history strategy: how the parent conversation's context
+ * reaches the side session.
+ * - `inherit`: fork the parent (full history seed → provider prefix-cache hits).
+ * - `compressed`: compress the earlier window with the fast model + verbatim recent.
+ * - `trim`: keep the last `trimWindowMessages` messages verbatim, zero LLM cost.
+ */
+export type SidebarqaHistoryStrategy = 'inherit' | 'compressed' | 'trim'
+
 /** User-editable configuration. */
 export interface SidebarqaConfig {
+  // ── History strategy (how the parent context reaches the side session) ───
+  /** 'inherit' | 'compressed' | 'trim'; the per-ask selector defaults to this. */
+  historyStrategy: SidebarqaHistoryStrategy
+  /** How many recent messages `trim` keeps verbatim (no model involved). */
+  trimWindowMessages: number
+
   // ── Summarize (fast no-thinking compression) ─────────────────────────────
   /** Registered provider route for the fast model; '' = inherit the main session's provider. */
   summarizeProvider: string
@@ -43,6 +58,8 @@ export interface SidebarqaConfig {
 
 /** Schema-backed defaults (also used when the settings service is absent). */
 export const SIDEBARQA_DEFAULTS: SidebarqaConfig = {
+  historyStrategy: 'compressed',
+  trimWindowMessages: 10,
   summarizeProvider: '',
   summarizeModel: 'deepseek-v4-flash',
   summarizeReasoningEffort: 'off',
@@ -57,6 +74,8 @@ export const SIDEBARQA_DEFAULTS: SidebarqaConfig = {
 
 /** Schemastery schema for the `sidebarqa` settings namespace. */
 export const SidebarqaPrefsSchema = z.object({
+  historyStrategy: z.union(['inherit', 'compressed', 'trim']).default(SIDEBARQA_DEFAULTS.historyStrategy),
+  trimWindowMessages: z.number().step(1).min(1).max(256).default(SIDEBARQA_DEFAULTS.trimWindowMessages),
   summarizeProvider: z.string().default(SIDEBARQA_DEFAULTS.summarizeProvider),
   summarizeModel: z.string().default(SIDEBARQA_DEFAULTS.summarizeModel),
   summarizeReasoningEffort: z.union(['off', 'high', 'max']).default(SIDEBARQA_DEFAULTS.summarizeReasoningEffort),

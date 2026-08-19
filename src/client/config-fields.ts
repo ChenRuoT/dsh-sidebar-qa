@@ -39,23 +39,31 @@ export type SidebarqaReasoningEffort = 'off' | 'high' | 'max'
 
 /** The three thinking modes shown as a dropdown. */
 export const REASONING_EFFORT_OPTIONS: readonly ConfigFieldOption[] = [
-  { value: 'off', label: 'Off（关闭思考）' },
+  { value: 'off', label: 'Off' },
   { value: 'high', label: 'High' },
   { value: 'max', label: 'Max' },
 ]
 
-/** The config panel's editable rows, in display order. */
+/** The three history strategies shown as a dropdown (mirror of the host union). */
+export const HISTORY_STRATEGY_OPTIONS: readonly ConfigFieldOption[] = [
+  { value: 'inherit', label: '全量继承' },
+  { value: 'compressed', label: '压缩对话' },
+  { value: 'trim', label: '机械裁切' },
+]
+
+/** The config panel's editable rows, in display order. Only the knobs users
+ *  plausibly tune are surfaced; the compression internals (summary budget,
+ *  window sizes, title budget) keep their defaults and stay settable through
+ *  the `sidebarqa` settings namespace in settings.yaml. */
 export const CONFIG_FIELDS: readonly ConfigField[] = [
+  { key: 'historyStrategy', label: '上下文策略', type: 'select', options: HISTORY_STRATEGY_OPTIONS, desc: '追问如何继承主对话上下文：全量（fork+缓存命中）/ 压缩 / 机械裁切' },
+  { key: 'trimWindowMessages', label: '裁切保留条数', type: 'number', min: 1, max: 256, desc: '机械裁切模式保留的最近消息条数（1–256）' },
   { key: 'answerProvider', label: '回答模型渠道', type: 'text', desc: '子对话回答模型的 provider' },
   { key: 'answerModel', label: '回答模型', type: 'text', desc: '子对话回答模型的 id' },
   { key: 'answerReasoningEffort', label: '回答思考模式', type: 'select', options: REASONING_EFFORT_OPTIONS, desc: 'Off 关闭思考；High / Max 逐级增强推理' },
   { key: 'summarizeProvider', label: '摘要模型渠道', type: 'text', placeholder: '留空 = 继承被追问会话', desc: '快速无思考摘要/标题模型的 provider' },
   { key: 'summarizeModel', label: '摘要模型', type: 'text', desc: '快速无思考模型的 id' },
   { key: 'summarizeReasoningEffort', label: '摘要思考模式', type: 'select', options: REASONING_EFFORT_OPTIONS, desc: 'Off 关闭思考；High / Max 逐级增强推理' },
-  { key: 'summarizeBudgetTokens', label: '摘要预算', type: 'number', min: 64, max: 8192, desc: '背景摘要输出 token 上限（64–8192）' },
-  { key: 'recentWindowMessages', label: '近期保留条数', type: 'number', min: 1, max: 64, desc: '近原文不压缩、原样保留的消息条数（1–64）' },
-  { key: 'backgroundWindowMessages', label: '背景压缩条数', type: 'number', min: 1, max: 256, desc: '交给模型压缩的较早消息条数（1–256）' },
-  { key: 'titleBudgetTokens', label: '标题预算', type: 'number', min: 16, max: 256, desc: '回答完成后重命名标题的输出 token 上限（16–256）' },
 ]
 
 /**

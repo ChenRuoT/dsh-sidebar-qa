@@ -1,32 +1,46 @@
 /**
  * The ask orchestration: resolve the parent session's workspace and model,
- * summarize the parent surface (host route), create the side session in the
- * same workspace, rename it `❓追问·<主题>`, set its answer model from the
- * plugin config (default deepseek-v4-flash, thinking off), then prompt with
- * the summary + quoted context + question. The parent session is never opened
- * — its agent, message stream, and queue are untouched.
+ * assemble the parent context per the chosen history strategy, create the
+ * side session, rename it `❓追问·<主题>`, then prompt with the context +
+ * quoted text + question. The parent session is never opened — its agent,
+ * message stream, and queue are untouched.
+ *
+ * History strategies:
+ * - `inherit`: fork the parent from its latest completed-turn boundary. The
+ *   child inherits the FULL history as a frozen seed, so its first request
+ *   reuses the parent's message prefix — DeepSeek's automatic prefix cache
+ *   hits, no compression loss. The child keeps the parent's model (no
+ *   selectModel — a different model would break the shared prefix). When the
+ *   parent has no completed turn yet (agent mid-turn), the fork fails with
+ *   `fork-unavailable` and the flow DEGRADES to `compressed`.
+ * - `compressed`: the host compresses the earlier window with the fast model
+ *   and keeps the recent band verbatim (default; existing behavior).
+ * - `trim`: the host keeps the last N messages verbatim — no model, no cost.
  *
  * `parentSessionId` is ANY session (main or a nested 追问 session): nested
  * follow-ups are supported by the same flow.
  */
 import type { Context } from '../context-types.ts'
+import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { workspaceOwningSession } from './history-scope.ts'
-import { currentModelOf, sidebarqaApi, type SidebarqaConfigView, type SummarizeResult } from './api.ts'
+import { currentModelOf, sidebarqaApi, type ContextResult, type SidebarqaConfigView } from './api.ts'
 import { buildFirstMessage, followUpTitle, parseUserMessage, topicFromQuote } from './injection.ts'
 import { hasTurnEnded, transcriptOf } from './answer.ts'
 import { buildTitleInput } from '../title.ts'
 import type { PendingQuote, SidebarqaStore } from './store.ts'
-import type { SidebarqaHistoryEntry } from '../context-types.ts'
+import type { SidebarqaHistoryEntry, SidebarqaModelSelection } from '../context-types.ts'
 
 /** Result of one ask. */
 export interface AskResult {
   sideSessionId: string
   parentSessionId: string
   degraded: boolean
+  /** The strategy actually used (equals the requested one unless a fallback fired). */
+  strategy: SidebarqaHistoryStrategy
 }
 
-/** Progress phases reported to the panel (摘要生成中 → 回答中). */
-export type AskPhase = 'summarizing' | 'answering'
+/** Progress phases reported to the panel (准备中 → 回答中). */
+export type AskPhase = 'preparing' | 'answering'
 
 /** Find the workspace id owning a session (undefined when ungrouped). */
 function resolveWorkspaceId(ctx: Context, sessionId: string): string | undefined {
@@ -56,14 +70,20 @@ async function tryRename(ctx: Context, sideSessionId: string, title: string): Pr
   }
 }
 
-/** Best-effort model selection (default deepseek-v4-flash, thinking off). */
-async function trySelectModel(ctx: Context, sideSessionId: string, config: SidebarqaConfigView): Promise<void> {
+/** Best-effort model selection (default deepseek-v4-flash, thinking off; a
+ *  panel-picked override wins when present). */
+async function trySelectModel(
+  ctx: Context,
+  sideSessionId: string,
+  config: SidebarqaConfigView,
+  override?: SidebarqaModelSelection,
+): Promise<void> {
   try {
     const response = await ctx.connection.api.sessions.selectModel({
       sessionId: sideSessionId,
-      provider: config.answerProvider,
-      model: config.answerModel,
-      reasoningEffort: config.answerReasoningEffort,
+      provider: override?.provider ?? config.answerProvider,
+      model: override?.model ?? config.answerModel,
+      reasoningEffort: override?.reasoningEffort ?? config.answerReasoningEffort,
     })
     if (!response.result.ok) console.warn('[dsh-sidebar-qa] selectModel failed:', response.result.error.message)
   } catch (error) {
@@ -78,6 +98,8 @@ async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
   } catch {
     // Keep the ask working even if the host route is unavailable.
     return {
+      historyStrategy: 'compressed',
+      trimWindowMessages: 10,
       summarizeProvider: '',
       summarizeModel: 'deepseek-v4-flash',
       summarizeReasoningEffort: 'off',
@@ -92,6 +114,27 @@ async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
   }
 }
 
+/** Best-effort fork of the parent (the `inherit` strategy's session creation). */
+async function tryForkParent(ctx: Context, parentSessionId: string): Promise<string> {
+  const response = await ctx.connection.api.sessions.fork({ sessionId: parentSessionId })
+  if (!response.result.ok) {
+    throw new Error(`fork failed: ${response.result.error.code}: ${response.result.error.message}`)
+  }
+  return response.result.value.sessionId
+}
+
+/** Prompt a side session with the assembled first message (throws on failure). */
+async function tryPrompt(ctx: Context, sideSessionId: string, text: string): Promise<void> {
+  const response = await ctx.connection.api.sessions.prompt({
+    sessionId: sideSessionId,
+    mode: 'queue',
+    content: [{ type: 'text', text }],
+  })
+  if (!response.result.ok) {
+    throw new Error(`prompt failed: ${response.result.error.code}: ${response.result.error.message}`)
+  }
+}
+
 /**
  * Run the full ask flow and return the created side session id.
  * @throws when create or prompt fails (the panel surfaces the error).
@@ -99,11 +142,19 @@ async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
 export async function askFollowUp(
   ctx: Context,
   store: SidebarqaStore,
-  input: { parentSessionId: string; quote: PendingQuote; question: string },
+  input: {
+    parentSessionId: string
+    quote: PendingQuote
+    question: string
+    strategy?: SidebarqaHistoryStrategy
+    /** Model picked in the panel for the next ask (compressed/trim children;
+     *  inherit children keep the parent's model by construction). */
+    modelOverride?: SidebarqaModelSelection
+  },
   onPhase?: (phase: AskPhase) => void,
 ): Promise<AskResult> {
   const { parentSessionId, quote, question } = input
-  onPhase?.('summarizing')
+  onPhase?.('preparing')
 
   const [config, currentModel] = await Promise.all([
     loadConfig(ctx),
@@ -111,16 +162,46 @@ export async function askFollowUp(
   ])
   const workspaceId = resolveWorkspaceId(ctx, parentSessionId)
   const cwd = workspaceId === undefined ? sessionCwd(ctx, parentSessionId) : undefined
+  const label = quote.role === 'user' ? '用户消息' : 'Agent 回复'
 
-  // Summarize + create run in parallel (independent).
-  const summarizePromise = sidebarqaApi.summarize({
+  let strategy: SidebarqaHistoryStrategy = input.strategy ?? config.historyStrategy ?? 'compressed'
+
+  // ── inherit: fork the parent — full context, prefix-cache hits ──────────
+  if (strategy === 'inherit') {
+    let forkedId: string | undefined
+    try {
+      forkedId = await tryForkParent(ctx, parentSessionId)
+    } catch (error) {
+      // Mid-turn (fork-unavailable) or any fork failure → degrade to the
+      // battle-tested compressed path; the ask still goes through. Only the
+      // FORK is forgiven — later rename/prompt failures must surface, not
+      // silently create a duplicate session.
+      console.warn('[dsh-sidebar-qa] inherit fork failed, degrading to compressed:', error)
+      strategy = 'compressed'
+    }
+    if (forkedId !== undefined) {
+      const sideSessionId = forkedId
+      await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text)))
+      // No selectModel: the child keeps the parent's model so the first
+      // request shares the parent's message prefix (cache hits preserved).
+      const text = buildFirstMessage(null, quote, question, label)
+      await tryPrompt(ctx, sideSessionId, text)
+      store.addChild(parentSessionId, sideSessionId)
+      onPhase?.('answering')
+      return { sideSessionId, parentSessionId, degraded: false, strategy }
+    }
+  }
+
+  // ── compressed / trim: assemble the context text + create a fresh session ─
+  const contextPromise = sidebarqaApi.context({
     mainSessionId: parentSessionId,
+    strategy,
     ...(config.summarizeProvider !== ''
       ? { provider: config.summarizeProvider }
       : currentModel !== undefined
         ? { provider: currentModel.provider }
         : {}),
-  }).catch((): SummarizeResult => ({ degraded: true, summary: null, sourceSeq: -1, reason: 'network' }))
+  }).catch((): ContextResult => ({ degraded: true, text: null, sourceSeq: -1, reason: 'network' }))
 
   const createResponse = await ctx.connection.api.sessions.create(
     workspaceId !== undefined
@@ -133,25 +214,17 @@ export async function askFollowUp(
     throw new Error(`create session failed: ${createResponse.result.error.code}: ${createResponse.result.error.message}`)
   }
   const sideSessionId = createResponse.result.value.sessionId
-  const summarize = await summarizePromise
+  const context = await contextPromise
 
   await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text)))
-  await trySelectModel(ctx, sideSessionId, config)
+  await trySelectModel(ctx, sideSessionId, config, input.modelOverride)
 
-  const label = quote.role === 'user' ? '用户消息' : 'Agent 回复'
-  const text = buildFirstMessage(summarize.summary, quote, question, label)
-  const promptResponse = await ctx.connection.api.sessions.prompt({
-    sessionId: sideSessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text }],
-  })
-  if (!promptResponse.result.ok) {
-    throw new Error(`prompt failed: ${promptResponse.result.error.code}: ${promptResponse.result.error.message}`)
-  }
+  const text = buildFirstMessage(context.text, quote, question, label)
+  await tryPrompt(ctx, sideSessionId, text)
 
   store.addChild(parentSessionId, sideSessionId)
   onPhase?.('answering')
-  return { sideSessionId, parentSessionId, degraded: summarize.degraded }
+  return { sideSessionId, parentSessionId, degraded: context.degraded, strategy }
 }
 
 /**

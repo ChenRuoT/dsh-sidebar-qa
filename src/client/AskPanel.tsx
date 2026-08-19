@@ -6,12 +6,17 @@
  * session's main window. Selecting text + 提问 starts a new (nested) follow-up
  * from whatever session is currently open.
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { Context, SidebarqaTabComponentProps } from '../context-types.ts'
-import { transcriptOf, type TranscriptMessage } from './answer.ts'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
+import { MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { Context, SidebarqaHistoryEntry, SidebarqaModelSelection, SidebarqaTabComponentProps } from '../context-types.ts'
+import type { SidebarqaHistoryStrategy } from '../config.ts'
+import { lastEndSeedIndex, transcriptRowsOf, type TranscriptRow } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
+import { sidebarqaApi } from './api.ts'
+import { StrategySelect } from './StrategySelect.tsx'
+import { ModelSelect } from './ModelSelect.tsx'
+import { ContextMeter } from './ContextMeter.tsx'
 import { resolveMetaQuote, consumeMetaQuote, resolveAskMode } from './meta-quote.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
@@ -49,10 +54,37 @@ export function AskPanel(props: AskPanelProps) {
   const [question, setQuestion] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState<TranscriptMessage[]>([])
+  const [strategy, setStrategy] = useState<SidebarqaHistoryStrategy>('compressed')
+  const [strategyNote, setStrategyNote] = useState<string | null>(null)
+  // Model picked in the panel for the NEXT ask (new-ask mode only): applied to
+  // compressed/trim children; inherit children keep the parent's model anyway.
+  const [pendingModel, setPendingModel] = useState<SidebarqaModelSelection | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const activeRunning = activeChildId !== null && sessionList.byId[activeChildId]?.running === true
+  // The composer's model seat and context meter bind to the session the ask is
+  // about: the active side session when continuing, the parent when starting a
+  // new ask (the future side session does not exist yet).
+  const toolSessionId = activeChildId ?? sessionId
+
+  // ── Fork-seed anchored transcript ─────────────────────────────────────────
+  // A fork (inherit) child's log leads with the parent's full history plus a
+  // `session/end-seed` marker. The panel renders everything, but anchors the
+  // initial view on the child's OWN first message (quote + question) and
+  // loads the inherited history upward on scroll, like the main conversation.
+  const [loadedEvents, setLoadedEvents] = useState<SidebarqaHistoryEntry[]>([])
+  const [anchorSeq, setAnchorSeq] = useState<number | null>(null)
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const seededRef = useRef(false)
+  const anchoredRef = useRef(false)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const anchorRowRef = useRef<HTMLDivElement>(null)
+
+  // The transcript rows derive from the loaded events (the poll and the
+  // upward paging both append to `loadedEvents`). Declared before the anchor
+  // effect so the effect can retry anchoring once the own first message lands.
+  const rows = useMemo(() => transcriptRowsOf(loadedEvents), [loadedEvents])
 
   // On session change: default to the latest follow-up of that session.
   useEffect(() => {
@@ -61,14 +93,35 @@ export function AskPanel(props: AskPanelProps) {
     setQuestion('')
     setPhase('idle')
     setError(null)
-    setMessages([])
+    setStrategyNote(null)
+    setPendingModel(null)
   }, [sessionId, store])
+
+  // Reset the anchored transcript when the followed session changes.
+  useEffect(() => {
+    seededRef.current = false
+    anchoredRef.current = false
+    setLoadedEvents([])
+    setAnchorSeq(null)
+    setHasOlder(false)
+    setLoadingOlder(false)
+    if (scrollRef.current !== null) scrollRef.current.scrollTop = 0
+  }, [activeChildId])
+
+  // Seed the per-ask strategy selector from the configured default.
+  useEffect(() => {
+    let cancelled = false
+    void sidebarqaApi.config().then((config) => {
+      if (cancelled) return
+      setStrategy(config.historyStrategy ?? 'compressed')
+    }).catch(() => { /* keep the built-in default */ })
+    return () => { cancelled = true }
+  }, [])
 
   // A new pending quote switches the panel back to "start a new follow-up".
   useEffect(() => {
     if (pendingQuote !== null) {
       setActiveChildId(null)
-      setMessages([])
       setPhase('idle')
       setError(null)
     }
@@ -79,7 +132,10 @@ export function AskPanel(props: AskPanelProps) {
     if (visible) inputRef.current?.focus()
   }, [visible])
 
-  // Stream the active follow-up's transcript (poll the history tail).
+  // Stream the active follow-up's transcript (poll the history tail). The
+  // first page anchors the fork-seed boundary; later pages append only the
+  // events newer than what is already loaded, so an upward-loaded inherited
+  // history is never dropped by the poll.
   useEffect(() => {
     if (activeChildId === null || !visible) return
     let cancelled = false
@@ -88,12 +144,28 @@ export function AskPanel(props: AskPanelProps) {
         const response = await ctx.connection.api.sessions.history({ sessionId: activeChildId, maxMessages: 60 })
         if (cancelled || !response.result.ok) return
         const events = response.result.value.events
-        setMessages(transcriptOf(events))
-        // Post-answer retitle: fires once (guarded by the store's titled flag).
-        void titleSideSessionOnce(ctx, store, {
-          sideSessionId: activeChildId,
-          parentSessionId: store.parentOf(activeChildId) ?? sessionId,
-          events,
+        if (!seededRef.current) {
+          seededRef.current = true
+          const seedIndex = lastEndSeedIndex(events)
+          const anchor = seedIndex >= 0 ? events[seedIndex]?.event.seq ?? null : null
+          setAnchorSeq(anchor)
+          setHasOlder(seedIndex >= 0 || response.result.value.hasMore)
+          setLoadedEvents(events)
+          // Right after an inherit ask, the prompt's `user/message` has not hit
+          // the log yet (prompt only queues into the agent inbox). The own
+          // message is therefore missing from this page — re-poll soon so the
+          // anchor effect can position on it, instead of waiting a full tick.
+          if (anchor !== null && !events.some(entry =>
+            entry.event.seq > anchor
+            && (entry.event.type === 'user/message' || entry.event.type === 'assistant/message'))) {
+            window.setTimeout(() => { if (!cancelled) void poll() }, 200)
+          }
+          return
+        }
+        setLoadedEvents(prev => {
+          const latest = prev.at(-1)?.event.seq ?? -1
+          const fresh = events.filter(event => event.event.seq > latest)
+          return fresh.length === 0 ? prev : [...prev, ...fresh]
         })
       } catch {
         // keep the last known transcript; retry on the next tick
@@ -105,7 +177,88 @@ export function AskPanel(props: AskPanelProps) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeChildId, visible, ctx, store, sessionId])
+  }, [activeChildId, visible, ctx])
+
+  // Post-answer retitle: fires once (guarded by the store's titled flag). Only
+  // the child's OWN events feed it — inherited parent history must not
+  // contaminate the question/answer extraction.
+  useEffect(() => {
+    if (activeChildId === null || loadedEvents.length === 0) return
+    const ownEvents = anchorSeq === null
+      ? loadedEvents
+      : loadedEvents.filter(entry => entry.event.seq > anchorSeq)
+    if (ownEvents.length === 0) return
+    void titleSideSessionOnce(ctx, store, {
+      sideSessionId: activeChildId,
+      parentSessionId: store.parentOf(activeChildId) ?? sessionId,
+      events: ownEvents,
+    })
+  }, [loadedEvents, anchorSeq, activeChildId, ctx, store, sessionId])
+
+  // Anchor the initial view on the child's own first message (quote +
+  // question), skipping past the inherited parent history. Position within OUR
+  // scrollport only — scrollIntoView would also scroll better-sidebar's outer
+  // container and could drag the composer out of view.
+  //
+  // Depends on `rows` (not just `anchorSeq`): right after an inherit ask the
+  // own first message may not be in the first page yet (prompt queues into the
+  // agent inbox and lands a beat later). Once it appears, this retries — but
+  // only once, via `anchoredRef`, so later page appends don't yank the view.
+  useEffect(() => {
+    if (anchorSeq === null || anchoredRef.current) return
+    const scrollEl = scrollRef.current
+    const anchorEl = anchorRowRef.current
+    if (scrollEl === null || anchorEl === null) return
+    anchoredRef.current = true
+    requestAnimationFrame(() => {
+      const containerTop = scrollEl.getBoundingClientRect().top
+      const anchorTop = anchorEl.getBoundingClientRect().top
+      scrollEl.scrollTop += anchorTop - containerTop
+    })
+  }, [anchorSeq, rows])
+
+  // Load the inherited (fork-seed) history upward, preserving the scroll
+  // position, like the main conversation's "load older" paging.
+  const loadOlder = async (): Promise<void> => {
+    if (activeChildId === null || loadingOlder || !hasOlder) return
+    const first = loadedEvents[0]
+    if (first === undefined) return
+    setLoadingOlder(true)
+    try {
+      const before = first.event.seq
+      const response = await ctx.connection.api.sessions.history({
+        sessionId: activeChildId,
+        beforeSeq: before,
+        maxMessages: 60,
+      })
+      if (!response.result.ok) return
+      const older = response.result.value.events.filter(event => event.event.seq < before)
+      if (older.length > 0) {
+        const scrollEl = scrollRef.current
+        const heightBefore = scrollEl?.scrollHeight ?? 0
+        setLoadedEvents(prev => [...older, ...prev])
+        setHasOlder(response.result.value.hasMore)
+        if (scrollEl !== null) {
+          requestAnimationFrame(() => {
+            scrollEl.scrollTop += scrollEl.scrollHeight - heightBefore
+          })
+        }
+      } else {
+        setHasOlder(response.result.value.hasMore)
+      }
+    } catch {
+      // keep the loaded page; the next scroll retries
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
+  // The transcript scrollport: reaching the top loads the older history.
+  const onScroll = (): void => {
+    const el = scrollRef.current
+    if (el === null) return
+    if (el.scrollTop <= 48) void loadOlder()
+  }
 
   // When the active follow-up finishes, leave the answering phase.
   useEffect(() => {
@@ -117,17 +270,29 @@ export function AskPanel(props: AskPanelProps) {
     if (q === '' || phase === 'asking') return
     setPhase('asking')
     setError(null)
+    setStrategyNote(null)
     try {
       if (activeChildId === null) {
         const result = await askFollowUp(
           ctx,
           store,
-          { parentSessionId: sessionId, quote: pendingQuote ?? { text: '' }, question: q },
+          {
+            parentSessionId: sessionId,
+            quote: pendingQuote ?? { text: '' },
+            question: q,
+            strategy,
+            modelOverride: pendingModel ?? undefined,
+          },
           (next) => {
             if (next === 'answering') setPhase('answering')
           },
         )
         setActiveChildId(result.sideSessionId)
+        // The inherit fork can degrade to compressed when the parent is
+        // mid-turn; surface that so the user knows the context was not full.
+        if (result.strategy !== strategy) {
+          setStrategyNote('主对话正在回答中，已改用「压缩」模式，稍后可在主对话空闲时再试「全量继承」。')
+        }
         store.setPendingQuote(sessionId, null)
         // Consume a meta-carried quote after it was sent, so refocusing the tab
         // (or a page reload, where the meta persists) never resurfaces it.
@@ -164,7 +329,6 @@ export function AskPanel(props: AskPanelProps) {
     consumeMeta()
     const list = store.childrenOf(sessionId)
     setActiveChildId(list.length > 0 ? (list[list.length - 1] ?? null) : null)
-    setMessages([])
     setPhase('idle')
     setError(null)
   }
@@ -187,16 +351,22 @@ export function AskPanel(props: AskPanelProps) {
           <button
             type="button"
             className={css.newAsk}
-            onClick={() => { setActiveChildId(null); setMessages([]); setPhase('idle'); setError(null) }}
+            onClick={() => { setActiveChildId(null); setPhase('idle'); setError(null) }}
           >
             新追问
           </button>
         </div>
       )}
 
-      <div className={css.body}>
+      <div className={css.body} ref={scrollRef} onScroll={onScroll}>
         {mode === 'conversation' && (
-          <Transcript messages={messages} running={activeRunning} />
+          <Transcript
+            rows={rows}
+            running={activeRunning}
+            anchorSeq={anchorSeq}
+            anchorRef={anchorRowRef}
+            hasOlder={hasOlder}
+          />
         )}
         {mode === 'start' && (
           <div className={css.startHint}>
@@ -218,7 +388,13 @@ export function AskPanel(props: AskPanelProps) {
         )}
       </div>
 
-      <div className={css.composer}>
+      {strategyNote !== null && <div className={css.strategyNote}>{strategyNote}</div>}
+      {phase === 'asking' && <div className={css.busyHint}>准备追问会话…</div>}
+
+      {/* DSH-style composer card: the same capsule chrome as the main
+          conversation's input bar — textarea on top, action row below
+          (strategy chip left; model seat + context meter + send right). */}
+      <div className={css.card}>
         <textarea
           ref={inputRef}
           className={css.input}
@@ -232,14 +408,36 @@ export function AskPanel(props: AskPanelProps) {
             }
           }}
         />
-        <button
-          type="button"
-          className={css.send}
-          disabled={question.trim() === '' || busy}
-          onClick={() => { void submit() }}
-        >
-          {phase === 'asking' ? '主对话上下文整理中…' : phase === 'answering' ? '回答中…' : '发送'}
-        </button>
+        <div className={css.row}>
+          <div className={css.tools}>
+            {activeChildId === null && (
+              <StrategySelect value={strategy} disabled={busy} onChange={setStrategy} />
+            )}
+          </div>
+          <div className={css.trailing}>
+            <ModelSelect
+              ctx={ctx}
+              sessionId={toolSessionId}
+              disabled={busy}
+              onChange={activeChildId === null ? setPendingModel : undefined}
+            />
+            <ContextMeter ctx={ctx} sessionId={toolSessionId} />
+            <Tooltip label="发送" side="top" delayMs={500}>
+              <button
+                type="button"
+                className={css.primary}
+                aria-label="发送"
+                disabled={question.trim() === '' || busy}
+                onClick={() => { void submit() }}
+              >
+                {/* The host composer's send glyph (design 34:10465). */}
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                  <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
+                </svg>
+              </button>
+            </Tooltip>
+          </div>
+        </div>
       </div>
 
       {phase === 'error' && error !== null && <div className={css.error}>{error}</div>}
@@ -247,19 +445,47 @@ export function AskPanel(props: AskPanelProps) {
   )
 }
 
-/** The streaming transcript (user right, assistant left; assistant is plain markdown). */
-function Transcript({ messages, running }: { messages: readonly TranscriptMessage[]; running: boolean }) {
-  if (messages.length === 0) {
+/** The streaming transcript (user right, assistant left; assistant is plain
+ *  markdown). When the followed session is a fork child, the inherited parent
+ *  history renders ABOVE the anchor divider — the divider sits at the child's
+ *  own first message (the quote + question), which is also the initial
+ *  scroll anchor. */
+function Transcript({
+  rows,
+  running,
+  anchorSeq,
+  anchorRef,
+  hasOlder,
+}: {
+  rows: readonly TranscriptRow[]
+  running: boolean
+  anchorSeq: number | null
+  anchorRef: RefObject<HTMLDivElement>
+  hasOlder: boolean
+}) {
+  if (rows.length === 0) {
     return <div className={css.emptyHint}>生成中…</div>
   }
-  const lastIndex = messages.length - 1
+  const lastIndex = rows.length - 1
+  let dividerPlaced = false
   return (
     <div className={css.transcript}>
-      {messages.map((message, index) => {
-        const streaming = running && index === lastIndex && message.role === 'assistant'
-        return message.role === 'user'
-          ? <UserRow key={index} text={message.text} />
-          : <AssistantRow key={index} text={message.text} streaming={streaming} />
+      {rows.map((row, index) => {
+        const isAnchor = !dividerPlaced && anchorSeq !== null && row.seq > anchorSeq
+        if (isAnchor) dividerPlaced = true
+        const streaming = running && index === lastIndex && row.role === 'assistant'
+        return (
+          <div key={row.seq} ref={isAnchor ? anchorRef : undefined}>
+            {isAnchor && (
+              <div className={css.seedDivider}>
+                {hasOlder ? '↑ 上方为主对话历史，继续向上滚动加载' : '↑ 上方为主对话历史'}
+              </div>
+            )}
+            {row.role === 'user'
+              ? <UserRow text={row.text} />
+              : <AssistantRow text={row.text} streaming={streaming} />}
+          </div>
+        )
       })}
     </div>
   )

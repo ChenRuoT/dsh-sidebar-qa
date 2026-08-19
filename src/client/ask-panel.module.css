@@ -66,6 +66,18 @@
   gap: 12px;
 }
 
+/* Fork-seed boundary: sits above the child's own first message (quote +
+   question) and marks where the inherited parent history ends. */
+.seedDivider {
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  margin-bottom: 2px;
+}
+
 .userRow {
   display: flex;
   justify-content: flex-end;
@@ -162,48 +174,505 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
-/* Composer. */
-.composer {
-  display: flex;
-  gap: 8px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
-  align-items: flex-end;
+/* Transient note (e.g. inherit degraded to compressed) and the ask-in-flight
+   hint; both sit between the body and the composer card. */
+.strategyNote,
+.busyHint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  margin: 0 10px;
+  padding: 0 0 6px;
 }
 
+/* ── Composer card (DSH input-bar chrome, figma Input_Bottom 75:8208) ───────
+   Same capsule as the main conversation's composer: elevated input surface,
+   l2-darkmode-thin hairline, 22px radius, lv2 shadow; textarea on top and the
+   action row below (chips left, model/context/send right). */
+.card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Width comes from the flex column's stretch (minus these margins) — a
+     `width: 100%` here would ADD the 10px margins on top and push the card
+     past the panel edge (the right side would be clipped off-screen). */
+  margin: 0 10px 10px;
+  padding-top: 10px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 22px;
+  background: var(--dsw-specific-input-major);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* The draft textarea: transparent inside the card (the surface is the
+   card's), caret in business blue, caption placeholder. */
 .input {
-  flex: 1;
+  box-sizing: border-box;
+  width: 100%;
   min-height: 40px;
   max-height: 160px;
   resize: vertical;
-  background: var(--dsw-alias-bg-layer-2);
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border: none;
+  outline: none;
+  background: transparent;
   color: var(--dsw-alias-label-primary);
-  padding: 8px 10px;
+  caret-color: var(--dsw-alias-state-business-primary);
+  padding: 4px 12px 0 16px;
   font: inherit;
 }
 
-.input:focus {
-  outline: none;
-  border-color: var(--dsw-alias-state-business-primary);
+.input::placeholder {
+  color: var(--dsw-alias-label-caption);
 }
 
-.send {
-  appearance: none;
-  border: 1px solid var(--dsw-alias-state-business-primary);
+/* Action row: strategy chip left, model + context + send right. */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 8px 6px;
+  min-width: 0;
+}
+
+.tools,
+.trailing {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.tools {
+  gap: 16px;
+}
+
+.trailing {
+  flex: none;
+  gap: 12px;
+}
+
+/* Chip trigger (permission/model trigger chrome: 28px, rounded pill,
+   secondary 13/500 label, caption chevron). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border: none;
+  border-radius: 24px;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chip:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.chip:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+/* The shared 16px glyphs render one step smaller on the exposed trigger. */
+.chipIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.chipIcon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.chipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Effort value beside the model name (caption tone). */
+.chipEffort {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+}
+
+.chipChevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+  transition: transform 120ms ease;
+}
+
+.chipChevronOpen {
+  transform: rotate(180deg);
+}
+
+/* Primary send (figma IconButton 34:10465): 34px circle, info-fill pair,
+   static white glyph, 0.4 opacity when empty. */
+.primary {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
   background: var(--dsw-alias-button-info-fill);
   color: #fff;
-  font-size: 13px;
-  padding: 8px 14px;
-  border-radius: 8px;
   cursor: pointer;
-  flex: none;
+  transition: background-color 100ms ease;
+  transform: translateY(-2px);
 }
 
-.send:disabled {
-  opacity: 0.55;
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-info-hover);
+}
+
+.primary:disabled {
+  opacity: 0.4;
   cursor: default;
+}
+
+/* ── Model dropdown (surface tokens match the Menu primitive) ────────────── */
+.modelRoot {
+  position: relative;
+  min-width: 0;
+}
+
+.modelMenu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(240px, calc(100vw - 32px));
+  max-height: min(360px, calc(100vh - 96px));
+  overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-inverted);
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.modelStatus {
+  padding: 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.modelError,
+.modelWarn {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.modelWarn {
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.modelRetry {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.modelGroups {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.modelGroup + .modelGroup {
+  margin-top: 4px;
+}
+
+.modelGroupTitle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 8px 3px;
+  background: var(--dsw-specific-menu);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.modelOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 10px;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modelOption:hover:not(:disabled),
+.modelOption:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.modelOption:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.modelOptionCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.modelName {
+  overflow: hidden;
+  color: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelDesc {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelCheck {
+  display: grid;
+  place-items: center;
+  flex: 0 0 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Two-level root cells: 40px row, 10px side padding, 8px gap, 10px radius;
+   14/22 primary label, tertiary value, right chevron drilling in. */
+.modelCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.modelCell:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.modelCellLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelCellValue {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.modelCellChevron {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ── Context-occupancy meter (ring + breakdown panel) ────────────────────── */
+.meterRoot {
+  position: relative;
+  display: inline-flex;
+}
+
+.meterTrigger {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.meterTrigger:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.meterTrack {
+  fill: none;
+  stroke: var(--dsw-alias-border-l3);
+  stroke-width: 2;
+}
+
+.meterFill {
+  fill: none;
+  stroke: var(--dsw-alias-label-tertiary);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.meterPanel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 100;
+  box-sizing: border-box;
+  width: 264px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-inverted);
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv3);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}
+
+.meterHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.meterFigures {
+  margin-left: auto;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+.meterPercent {
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.meterHeadline {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.meterBar {
+  display: flex;
+  gap: 1px;
+  margin: 10px 0 12px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  overflow: hidden;
+}
+
+.meterSegment {
+  flex: none;
+  min-width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--meter-tint, var(--dsw-alias-label-tertiary));
+}
+
+.meterSwatch {
+  display: inline-block;
+  margin-right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--meter-tint);
+  vertical-align: baseline;
+}
+
+.meterColorSystem {
+  --meter-tint: var(--dsw-static-neutral-bluish-400);
+}
+
+.meterColorTools {
+  --meter-tint: rgb(167, 139, 250);
+}
+
+.meterColorMessages {
+  --meter-tint: var(--dsw-static-blue-450);
+}
+
+.meterRows {
+  margin: 6px 0 0;
+}
+
+.meterRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.meterRow dt {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.meterRow dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
 }
 
 .error {

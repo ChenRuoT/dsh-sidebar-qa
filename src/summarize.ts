@@ -16,6 +16,9 @@ export const RECENT_SEGMENT_MAX = 400
 /** Per-segment char cap for the background window handed to the model. */
 export const BACKGROUND_SEGMENT_MAX = 400
 
+/** Per-segment char cap for the `trim` strategy's verbatim tail. */
+export const TRIM_SEGMENT_MAX = 1000
+
 /** One user/assistant text segment in model-history order. */
 export interface SurfaceSegment {
   role: 'user' | 'assistant'
@@ -100,6 +103,22 @@ export function formatSegments(segments: readonly SurfaceSegment[], maxPerSegmen
   return segments
     .map(segment => `${segment.role === 'user' ? '用户' : '助手'}：${bound(segment.text, maxPerSegment)}`)
     .join('\n\n')
+}
+
+/**
+ * The `trim` strategy's injected context: the last `count` segments VERBATIM
+ * (role-labeled, per-segment bounded) — deterministic, zero LLM cost. A count
+ * of 0 or negative yields an empty string; a count ≥ the segment count keeps
+ * the whole tail.
+ */
+export function buildTrimContext(
+  segments: readonly SurfaceSegment[],
+  count: number,
+  maxPerSegment: number = TRIM_SEGMENT_MAX,
+): string {
+  const take = Math.max(0, count)
+  const tail = segments.slice(Math.max(0, segments.length - take))
+  return formatSegments(tail, maxPerSegment)
 }
 
 /**

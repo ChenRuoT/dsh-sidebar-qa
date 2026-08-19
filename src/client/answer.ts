@@ -58,6 +58,32 @@ export interface TranscriptMessage {
   text: string
 }
 
+/** One transcript row plus the seq of its last event (anchoring + pagination). */
+export interface TranscriptRow extends TranscriptMessage {
+  seq: number
+}
+
+/**
+ * Locate the LAST `session/end-seed` event in a history page. A fork child's
+ * log is `[seed…, session/end-seed, live…]`; the end-seed marks where the
+ * inherited parent history ends and the child's own messages begin. Nested
+ * forks can carry several markers, so the LAST one is the child's own
+ * boundary (mirror of the core session contract's rule for stored history).
+ * @returns the index of the last marker, or -1 when the page has none.
+ */
+export function lastEndSeedIndex(events: readonly SidebarqaHistoryEntry[]): number {
+  let index = -1
+  for (let i = 0; i < events.length; i++) {
+    if (events[i]?.event.type === 'session/end-seed') index = i
+  }
+  return index
+}
+
+/** Whether the page contains a fork-seed boundary (i.e. inherited history). */
+export function hasSeedHistory(events: readonly SidebarqaHistoryEntry[]): boolean {
+  return lastEndSeedIndex(events) !== -1
+}
+
 /**
  * Fold one history page into an ordered message transcript. Chunks belonging
  * to the in-flight answer (seq past the last settled assistant message) are
@@ -90,6 +116,42 @@ export function transcriptOf(events: readonly SidebarqaHistoryEntry[]): Transcri
   if (inFlight !== '') messages.push({ role: 'assistant', text: inFlight })
 
   return messages
+}
+
+/**
+ * Like {@link transcriptOf}, but each row also carries the seq of its last
+ * event: settled messages use their event seq, the in-flight chunk aggregate
+ * uses the last chunk's seq. The panel uses the seq to split inherited
+ * (fork-seed) rows from the child's own rows and to anchor the initial view.
+ */
+export function transcriptRowsOf(events: readonly SidebarqaHistoryEntry[]): TranscriptRow[] {
+  const rows: TranscriptRow[] = []
+  let lastAssistantSeq = -1
+
+  for (const entry of events) {
+    const event = entry.event
+    if (event.type === 'user/message') {
+      const text = textOfUserMessage(event)
+      if (text !== '') rows.push({ role: 'user', text, seq: event.seq })
+    } else if (event.type === 'assistant/message') {
+      const text = textOfAssistantMessage(event)
+      lastAssistantSeq = event.seq
+      if (text !== '') rows.push({ role: 'assistant', text, seq: event.seq })
+    }
+  }
+
+  let inFlight = ''
+  let inFlightSeq = -1
+  for (const entry of events) {
+    const event = entry.event
+    if (event.type === 'assistant/chunk' && event.seq > lastAssistantSeq) {
+      inFlight += chunkText(event)
+      inFlightSeq = event.seq
+    }
+  }
+  if (inFlight !== '') rows.push({ role: 'assistant', text: inFlight, seq: inFlightSeq })
+
+  return rows
 }
 
 /**

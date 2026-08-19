@@ -206,7 +206,7 @@ export interface SidebarqaSessionListSnapshot {
   byId: Record<string, SidebarqaSessionSummary>
 }
 
-/** The client sessions service face (list feed + create + open). */
+/** The client sessions service face (list feed + create + open + scope). */
 export interface SidebarqaSessionsService {
   list: {
     getSnapshot(): SidebarqaSessionListSnapshot
@@ -214,6 +214,13 @@ export interface SidebarqaSessionsService {
   }
   create(opts: { workspaceId?: string; cwd?: string; sessionId?: string }): Promise<string>
   open(id: string): void
+  /**
+   * Resolve an Agent-scoped context view for one listed session (use-and-discard).
+   * Returns undefined for a session neither listed nor already scoped.
+   */
+  scope(sessionId: string): Context | undefined
+  /** Resolve the session face behind an Agent-scoped context (from {@link scope}). */
+  sessionOf(ctx: Context): SidebarqaSessionFace | undefined
 }
 
 /** One raw session event on the append feed. */
@@ -222,6 +229,44 @@ export interface SidebarqaSessionEvent {
   seq: number
   time: number
   data: Record<string, unknown>
+}
+
+/** Minimal bare observable (mirror of the runtime ObservableSnapshot for useSyncExternalStore). */
+export interface SidebarqaObservableSnapshot<T> {
+  getSnapshot(): T
+  subscribe(fn: () => void): () => void
+}
+
+/** The per-session projection read face (host-computed values by key). */
+export interface SidebarqaProjectionsFace {
+  /** Identity-stable bare observable for one key (absence = `undefined` snapshot). */
+  faceOf(key: string): SidebarqaObservableSnapshot<unknown>
+}
+
+/** The outward session face (identity + projections; the verbs ride the RPC layer). */
+export interface SidebarqaSessionFace {
+  sessionId: string
+  projections: SidebarqaProjectionsFace
+}
+
+/**
+ * Host-computed context-pressure projection (mirror of dsh-token-meter's
+ * `contextPressure`): how full the next request's prompt would be.
+ */
+export interface SidebarqaContextPressure {
+  /** Prompt-side sample tokens of the last request (present after the first usage report). */
+  pressureTokens?: number
+  /** Sample + surface movement since; what the NEXT request would cost. */
+  projectedTokens?: number
+  /** The serving route's context window in tokens. */
+  contextWindow?: number
+}
+
+/** Host-computed context composition (mirror of dsh-token-meter's `contextBreakdown`). */
+export interface SidebarqaContextBreakdown {
+  systemTokens: number
+  toolsTokens: number
+  messageTokens: number
 }
 
 /** RPC result slot mirror (`RpcResult<T>` on the wire). */
@@ -245,16 +290,70 @@ export interface SidebarqaModelSelection {
   reasoningEffort?: string
 }
 
+/** One adapter-owned reasoning level (the effort vocabulary a model advertises). */
+export interface SidebarqaModelReasoningEffort {
+  id: string
+  name: string
+  description?: string
+}
+
+/** The reasoning metadata one catalog model advertises. */
+export interface SidebarqaModelReasoning {
+  /** The effort applied when none is chosen; omitted models keep the provider default. */
+  defaultEffort?: string
+  efforts: readonly SidebarqaModelReasoningEffort[]
+}
+
+/** One model row in a provider group. */
+export interface SidebarqaCatalogModel {
+  id: string
+  name: string
+  description?: string
+  reasoning?: SidebarqaModelReasoning
+}
+
+/** One provider group of the advisory directory. */
+export interface SidebarqaModelProviderGroup {
+  id: string
+  name: string
+  models: readonly SidebarqaCatalogModel[]
+}
+
+/** One provider-local catalog failure from the last directory load. */
+export interface SidebarqaModelCatalogFailure {
+  id: string
+  name: string
+  message?: string
+}
+
+/** The advisory model directory one `session.models` call returns (mirror of SessionModels). */
+export interface SidebarqaSessionModels {
+  current: SidebarqaModelSelection | null
+  /** Whether an adapter serves the current selection's provider (null before the first load). */
+  routable: boolean | null
+  groups: readonly SidebarqaModelProviderGroup[]
+  failures: readonly SidebarqaModelCatalogFailure[]
+}
+
 /** The sessions RPC surface the client reaches through `ctx.connection.api`. */
 export interface SidebarqaSessionsRpc {
   create(payload: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }):
     Promise<SidebarqaRpcResponse<{ sessionId: string; agentPreset?: string }>>
+  /**
+   * Fork a session from its latest completed-turn boundary (or an `atSeq`
+   * anchor): the child inherits the parent's full history as a frozen seed,
+   * so its first request reuses the parent's message prefix — DeepSeek's
+   * automatic prefix cache hits. Fails with `fork-unavailable` when the
+   * source has no completed turn (e.g. the agent is mid-turn).
+   */
+  fork(payload: { sessionId: string; atSeq?: number }):
+    Promise<SidebarqaRpcResponse<{ sessionId: string }>>
   rename(payload: { sessionId: string; title: string }):
     Promise<SidebarqaRpcResponse<{ title: string; seq: number }>>
   selectModel(payload: { sessionId: string; provider: string; model: string; reasoningEffort?: string }):
     Promise<SidebarqaRpcResponse<{ selected: SidebarqaModelSelection }>>
   models(payload: { sessionId: string }):
-    Promise<SidebarqaRpcResponse<{ current: SidebarqaModelSelection; routable: boolean }>>
+    Promise<SidebarqaRpcResponse<SidebarqaSessionModels>>
   prompt(payload: { sessionId: string; mode: 'queue' | 'steer'; content: { type: 'text'; text: string }[]; clientTimeZone?: string }):
     Promise<SidebarqaRpcResponse<{ accepted: true }>>
   history(payload: { sessionId: string; beforeSeq?: number; maxMessages?: number }):
