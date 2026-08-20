@@ -2,6 +2,12 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### Changed
+
+- **回答/摘要的模型渠道与模型均改为下拉选择**：功能配置面板中「回答模型渠道 / 回答模型 / 摘要模型渠道 / 摘要模型」四行从自由文本输入改为下拉框，选项来自运行时模型目录——渠道列表只列当前部署**已配置/已启用（有已注册 adapter）**的 channel（host `ctx.llm.listProviders()`，与 DSH 本身正在用的一致，未配置的 dormant 渠道不出现），模型列表随所选渠道联动（`ctx.llm.listModels(provider)`），经新增的 `/sidebarqa/api/catalog` 路由下发；切换渠道时自动锚定新渠道的第一个模型（原模型仍被该渠道服务则保留）。摘要渠道额外提供「继承被追问会话」空值项（对应原默认 `''`），其模型下拉在继承态展示全部渠道模型的并集。已保存值不在目录中时仍保留在选项中。host + client 半均有改动：需重启 `dsh web` 并硬刷新浏览器。
+
 ## [0.3.1] - 2026-08-20
 
 ### Fixed

@@ -13,7 +13,16 @@
  */
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { sidebarqaApi, type SidebarqaConfigView } from './api.ts'
-import { CONFIG_FIELDS, coerceNumberField, type ConfigField } from './config-fields.ts'
+import type { SidebarqaCatalog } from '../context-types.ts'
+import {
+  CATALOG_INHERIT_VALUE,
+  CONFIG_FIELDS,
+  coerceNumberField,
+  modelOptionsOf,
+  providerOptionsOf,
+  type ConfigField,
+  type ConfigFieldOption,
+} from './config-fields.ts'
 import css from './config-panel.module.css'
 
 /** Map one wire failure to an inline message (the conflict gets friendly copy). */
@@ -28,11 +37,13 @@ function messageOf(error: unknown): string {
 function FieldRow(props: {
   field: ConfigField
   value: string
+  options?: readonly ConfigFieldOption[]
   onCommit: (raw: string) => string
 }): ReactElement {
-  const { field, value, onCommit } = props
+  const { field, value, options, onCommit } = props
   const [draft, setDraft] = useState(value)
   const number = field.type === 'number'
+  const select = field.type === 'select' || field.type === 'catalog'
   const commit = (raw: string): void => { setDraft(onCommit(raw)) }
   return (
     <div className={css.row}>
@@ -40,14 +51,14 @@ function FieldRow(props: {
         <span className={css.title}>{field.label}</span>
         {field.desc !== undefined && field.desc !== '' && <span className={css.desc}>{field.desc}</span>}
       </span>
-      {field.type === 'select' ? (
+      {select ? (
         <select
           className={css.select}
           value={draft}
           aria-label={field.label}
           onChange={(event) => { commit(event.currentTarget.value) }}
         >
-          {field.options?.map((option) => (
+          {options?.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -78,6 +89,7 @@ function FieldRow(props: {
  */
 export function ConfigPanel(): ReactElement {
   const [config, setConfig] = useState<SidebarqaConfigView | null>(null)
+  const [catalog, setCatalog] = useState<SidebarqaCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The LATEST optimistic config: nested updates build from this ref, not the
   // render-time `config`, so two same-tick commits never drop each other.
@@ -102,6 +114,9 @@ export function ConfigPanel(): ReactElement {
       if (dirtyRef.current) return
       update(view.value ?? null)
     }).catch(() => { /* keep the loading state; the store defaults stay unreachable from a broken wire */ })
+    // The catalog is advisory (never persisted here): a failure just leaves
+    // the answer provider/model rows as empty selects, not a broken panel.
+    void sidebarqaApi.catalog().then((next) => { if (!cancelled) setCatalog(next) }).catch(() => {})
     return () => { cancelled = true }
   }, [])
 
@@ -137,12 +152,66 @@ export function ConfigPanel(): ReactElement {
       commit({ [field.key]: clamped })
       return String(clamped)
     }
+    if (field.type === 'catalog' && field.source === 'answerProvider') {
+      // The answer channel changed: re-anchor the model to the new channel's
+      // first model (or the previous model when the new channel still serves
+      // it), so a channel switch never leaves a stale model routed elsewhere.
+      const providers = catalog?.providers ?? []
+      const chosen = providers.find(provider => provider.provider === raw)
+      const previousModel = String(current?.answerModel ?? '')
+      const stillServed = chosen?.models.some(model => model.id === previousModel) ?? false
+      const nextModel = stillServed || chosen === undefined
+        ? previousModel
+        : chosen.models[0]?.id ?? previousModel
+      commit({ answerProvider: raw, ...(nextModel === previousModel ? {} : { answerModel: nextModel }) })
+      return raw
+    }
+    if (field.type === 'catalog' && field.source === 'summarizeProvider') {
+      // The summary channel changed: re-anchor the summary model. Switching to
+      // "inherit" (empty) keeps the current model (it is always used on the
+      // inherited channel); a concrete channel re-anchors like the answer row.
+      const providers = catalog?.providers ?? []
+      const previousModel = String(current?.summarizeModel ?? '')
+      if (raw === CATALOG_INHERIT_VALUE) {
+        commit({ summarizeProvider: raw })
+        return raw
+      }
+      const chosen = providers.find(provider => provider.provider === raw)
+      const stillServed = chosen?.models.some(model => model.id === previousModel) ?? false
+      const nextModel = stillServed || chosen === undefined
+        ? previousModel
+        : chosen.models[0]?.id ?? previousModel
+      commit({ summarizeProvider: raw, ...(nextModel === previousModel ? {} : { summarizeModel: nextModel }) })
+      return raw
+    }
     commit({ [field.key]: raw })
     return raw
   }
 
   if (config === null) {
     return <div className={css.loading}>加载配置…</div>
+  }
+  const currentConfig = config
+
+  // Resolve each row's render options: catalog rows draw from the live model
+  // catalog (model rows are scoped by their channel's currently chosen value).
+  // A stored value that the catalog has not caught up with stays listed so the
+  // select never renders blank for a saved route.
+  const optionsOf = (field: ConfigField): readonly ConfigFieldOption[] | undefined => {
+    if (field.type !== 'catalog') return field.options
+    const providers = catalog?.providers ?? []
+    const stored = String(currentConfig[field.key] ?? '')
+    const scoping = field.source === 'answerModel'
+      ? currentConfig.answerProvider
+      : field.source === 'summarizeModel'
+        ? currentConfig.summarizeProvider
+        : null
+    const base = scoping === null
+      ? providerOptionsOf(providers, field.source ?? '')
+      : modelOptionsOf(providers, scoping)
+    return stored !== '' && !base.some(option => option.value === stored)
+      ? [...base, { value: stored, label: stored }]
+      : base
   }
 
   return (
@@ -153,9 +222,10 @@ export function ConfigPanel(): ReactElement {
             // Keyed by the committed value: a failed commit reverts config, the
             // key changes, and the row remounts with the stored value (typing
             // never changes the key, so mid-edit drafts survive re-renders).
-            key={`${field.key}:${String(config[field.key] ?? '')}`}
+            key={`${field.key}:${String(currentConfig[field.key] ?? '')}`}
             field={field}
-            value={String(config[field.key] ?? '')}
+            value={String(currentConfig[field.key] ?? '')}
+            options={optionsOf(field)}
             onCommit={(raw) => onCommit(field, raw)}
           />
         ))}

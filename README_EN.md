@@ -58,18 +58,18 @@ Restart `dsh web` (host-half changes need a restart; client-half changes only ne
 
 ## Configuration
 
-Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the settings page). **Web entry point**: DSH Settings → Side Cards → the gear 「功能配置」 popup on the 「追问」 card (provided by dsh-better-sidebar v0.12+ `settings.render`), editing the fields below — text rows commit on blur/Enter, number rows clamp to their range, writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (conflicts prompt a retry).
+Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the settings page). **Web entry point**: DSH Settings → Side Cards → the gear 「功能配置」 popup on the 「追问」 card (provided by dsh-better-sidebar v0.12+ `settings.render`), editing the fields below — text rows commit on blur/Enter, number rows clamp to their range, writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (conflicts prompt a retry). **The answer and summary channel/model rows are all dropdowns** populated from the live model catalog (host `ctx.llm.listProviders()` + `listModels()`, served through `/sidebarqa/api/catalog`): the channel lists hold only the providers the deployment has **configured/enabled (with a registered adapter)** — matching what DSH itself is using, dormant unconfigured channels are omitted (the summary channel adds an "inherit the asked session" empty option), and the model list follows the chosen channel (switching channel re-anchors the model to that channel's first model, or keeps the previous model when that channel still serves it; the summary model under "inherit" shows the union of every channel's models). A saved value the catalog has not caught up with stays in the options so a stored route never renders blank.
 
 | Key | Default | Description |
 |---|---|---|
-| `summarizeProvider` | `''` | Summary fast-model channel; empty = inherit the asked session's provider |
-| `summarizeModel` | `deepseek-v4-flash` | Summary fast no-thinking model |
+| `summarizeProvider` | `''` | Summary fast-model channel; empty = inherit the asked session's provider (dropdown, includes "inherit") |
+| `summarizeModel` | `deepseek-v4-flash` | Summary fast no-thinking model (dropdown, follows the chosen channel) |
 | `summarizeReasoningEffort` | `off` | Summary reasoning effort (`off`/`high`/`max` dropdown) |
 | `summarizeBudgetTokens` | `160` | Background-summary output budget (tokens) |
 | `recentWindowMessages` | `2` | **Verbatim** recent messages kept (the current-state anchor, not model-compressed) |
 | `backgroundWindowMessages` | `12` | Max older messages handed to the model for compression |
-| `answerProvider` | `deepseek-official` | Follow-up answer model channel |
-| `answerModel` | `deepseek-v4-flash` | Follow-up answer model |
+| `answerProvider` | `deepseek-official` | Follow-up answer model channel (dropdown from the live catalog) |
+| `answerModel` | `deepseek-v4-flash` | Follow-up answer model (dropdown that follows the chosen channel) |
 | `answerReasoningEffort` | `off` | Follow-up reasoning effort (`off`/`high`/`max` dropdown) |
 | `titleBudgetTokens` | `64` | Output budget for the post-answer retitle (tokens) |
 
@@ -95,6 +95,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── ensure-panel.ts     collapsed-panel self-heal: expansion decision + expand via SidebarStore (pure, tested)
     ├── tab-activation.ts   onActivate bridge: re-heal when a tab is re-activated after a manual collapse (issue #6)
     ├── orchestrate.ts      create → placeholder rename → selectModel (default flash / thinking off) → prompt + continue + post-answer retitle
+    ├── ConfigPanel.tsx     config gear popup (edits the sidebarqa namespace; answer channel/model dropdowns)
+    ├── config-fields.ts    config row declarations + number coercion + catalog option resolution (pure, tested)
     ├── store.ts            parent→child map (localStorage-persisted, nested) + pending quotes + titled marks
     ├── injection.ts        XML escape/sanitize + injection format + placeholder topic
     ├── answer.ts           history stream → answer text folding

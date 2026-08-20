@@ -62,17 +62,17 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 配置
 
-配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）。**Web 界面入口**：DSH 设置 → 侧边卡片 → 「追问」卡片右上角的齿轮「功能配置」弹窗（由 dsh-better-sidebar v0.12+ 的 `settings.render` 提供），可逐项编辑下表字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试）。
+配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）。**Web 界面入口**：DSH 设置 → 侧边卡片 → 「追问」卡片右上角的齿轮「功能配置」弹窗（由 dsh-better-sidebar v0.12+ 的 `settings.render` 提供），可逐项编辑下表字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试）。**回答/摘要的模型渠道与模型**四行均为下拉，选项来自运行时模型目录（host `ctx.llm.listProviders()` + `listModels()`，经 `/sidebarqa/api/catalog` 下发）：渠道列表 = 当前部署**已配置/已启用（有已注册 adapter）**的 channel——与 DSH 本身正在用的一致，未配置的 dormant 渠道不出现（摘要渠道额外提供「继承被追问会话」空值项）；模型列表随所选渠道联动（切换渠道时自动锚定新渠道的第一个模型，若原模型仍在其中则保留；摘要模型在「继承」渠道下展示全部渠道的模型并集）。已保存值不在目录中时仍保留在选项里，避免已存路由显示为空。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `historyStrategy` | `compressed` | 默认上下文策略：`inherit` 全量继承（fork+缓存命中）/ `compressed` 压缩 / `trim` 机械裁切（面板内可逐次切换） |
 | `trimWindowMessages` | `10` | 机械裁切模式保留的最近消息条数（1–256） |
-| `summarizeProvider` | `''` | 摘要快速模型渠道；空 = 继承被追问会话的 provider |
-| `summarizeModel` | `deepseek-v4-flash` | 摘要快速无思考模型 |
+| `summarizeProvider` | `''` | 摘要快速模型渠道；空 = 继承被追问会话的 provider（下拉，含「继承」项） |
+| `summarizeModel` | `deepseek-v4-flash` | 摘要快速无思考模型（下拉，随所选渠道联动） |
 | `summarizeReasoningEffort` | `off` | 摘要思考模式（`off`/`high`/`max` 三档下拉） |
-| `answerProvider` | `deepseek-official` | 子对话回答模型渠道 |
-| `answerModel` | `deepseek-v4-flash` | 子对话回答模型 |
+| `answerProvider` | `deepseek-official` | 子对话回答模型渠道（下拉，来自运行时模型目录） |
+| `answerModel` | `deepseek-v4-flash` | 子对话回答模型（下拉，随所选渠道联动） |
 | `answerReasoningEffort` | `off` | 子对话思考模式（`off`/`high`/`max` 三档下拉） |
 
 > 面板只展示上述 8 项常用设置；压缩/标题的内部调参键（`summarizeBudgetTokens`、`recentWindowMessages`、`backgroundWindowMessages`、`titleBudgetTokens`）不在面板暴露，仍可在 `settings.yaml` 的 `sidebarqa` 命名空间里配置。
@@ -104,6 +104,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── ensure-panel.ts      面板收起自愈：展开判定 + 经 SidebarStore 展开（纯函数，可测）
     ├── tab-activation.ts    onActivate 激活桥：收起后重新激活 tab 时再次自愈（issue #6）
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
+    ├── ConfigPanel.tsx       功能配置面板（设置齿轮弹窗：编辑 sidebarqa 命名空间，回答模型/渠道下拉 + 摘要文本行）
+    ├── config-fields.ts      配置面板行声明 + 数字钳制 + catalog 选项解析（纯函数，可测）
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成
     ├── answer.ts           历史流 → 回答文本折叠

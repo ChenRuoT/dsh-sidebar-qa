@@ -88,9 +88,41 @@ export type SidebarqaStreamChunk =
   | { type: 'usage'; usage: unknown }
   | { type: 'finish'; reason: { kind?: string } }
 
-/** The llm service face this plugin uses (stream a one-shot summary call). */
+/** One provider route of the served catalog (structural mirror of LlmProviderInfo). */
+export interface SidebarqaLlmProvider {
+  /** Provider route key used by {@link SidebarqaLlmRequest.provider}. */
+  id: string
+  /** Human-readable provider name for selectors. */
+  name: string
+}
+
+/** One model row of the served catalog (structural mirror of LlmModelInfo). */
+export interface SidebarqaLlmModel {
+  /** Model id passed to Generate requests. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+}
+
+/** One provider group of the served ad-hoc catalog (provider + its models). */
+export interface SidebarqaCatalogProvider {
+  provider: string
+  displayName: string
+  models: readonly SidebarqaLlmModel[]
+}
+
+/** The ad-hoc model catalog: every configurable provider with its models. */
+export interface SidebarqaCatalog {
+  providers: readonly SidebarqaCatalogProvider[]
+}
+
+/** The llm service face this plugin uses (stream a one-shot summary call + catalog lookup). */
 export interface SidebarqaLlmService {
   stream(options: SidebarqaLlmRequest): AsyncIterable<SidebarqaStreamChunk>
+  /** Every provider route with a registered adapter (only the channels that are configured/enabled). */
+  listProviders(): readonly SidebarqaLlmProvider[]
+  /** The models a provider route can serve ([] for an unregistered route). */
+  listModels(provider: string): Promise<readonly SidebarqaLlmModel[]>
 }
 
 /** One loader entry's options slice (the connection row's resolved config). */
