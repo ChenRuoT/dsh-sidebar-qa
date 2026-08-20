@@ -1,6 +1,6 @@
 {
   "name": "dsh-sidebar-qa",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DSH web plugin: select conversation text -> ask in a right-side panel -> a dedicated follow-up session (❓追问) in the same workspace, without interrupting the main conversation. Thin consumer of dsh-better-sidebar.",
   "type": "module",
   "license": "MIT",
