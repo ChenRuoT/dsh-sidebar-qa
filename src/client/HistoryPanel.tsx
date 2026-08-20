@@ -18,7 +18,7 @@ import type { Context, SidebarqaSessionListSnapshot, SidebarqaTabComponentProps 
 import type { SidebarqaStore } from './store.ts'
 import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-panel.ts'
 import { onTabActivated } from './tab-activation.ts'
-import { filterHistoryToWorkspace, rootsOf, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
+import { filterHistoryToWorkspace, rootsOf, sessionStatus, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
 import { timeLabel } from './history-time.ts'
 import css from './history-panel.module.css'
 
@@ -80,6 +80,11 @@ export function HistoryPanel({ ctx, store, scope, visible, bsStore }: HistoryPan
     ? snapshot.parentToChildren
     : filterHistoryToWorkspace(snapshot.parentToChildren, new Set(currentWorkspace.sessionIds))
 
+  // Archive set (registry-global): an archived session is hidden from every
+  // workspace's sessionIds but still accounted — its mapping row survives, so
+  // it must be classified explicitly instead of relying on the workspace filter.
+  const archivedIds = new Set(workspaceList.archivedSessionIds)
+
   const roots = rootsOf(parentToChildren)
 
   if (roots.length === 0) {
@@ -109,6 +114,7 @@ export function HistoryPanel({ ctx, store, scope, visible, bsStore }: HistoryPan
           sessionList={sessionList}
           now={now}
           parentToChildren={parentToChildren}
+          archivedIds={archivedIds}
         />
       ))}
     </div>
@@ -124,12 +130,19 @@ function TreeNode(props: {
   sessionList: SidebarqaSessionListSnapshot
   now: number
   parentToChildren: Record<string, string[]>
+  archivedIds: ReadonlySet<string>
 }) {
-  const { ctx, id, depth, store, sessionList, now, parentToChildren } = props
+  const { ctx, id, depth, store, sessionList, now, parentToChildren, archivedIds } = props
   const children = parentToChildren[id] ?? []
   const isRoot = depth === 0
   const hasChildren = children.length > 0
   const collapsed = store.isCollapsed(id)
+
+  // Stale classification: archived (DSH-side archive, feed may still list it)
+  // or gone (deleted / not yet hydrated). Stale rows are non-navigable and
+  // offer a "移除" entry that prunes the whole subtree from the mapping.
+  const status = sessionStatus(id, sessionList.byId, archivedIds)
+  const stale = status !== 'live'
 
   // The row's recent-activity time: the newest `updatedAt` across the whole
   // subtree (a conversation group's "最近访问"), formatted like the left panel.
@@ -142,20 +155,36 @@ function TreeNode(props: {
         role="treeitem"
         aria-level={depth + 1}
         aria-expanded={hasChildren ? !collapsed : undefined}
-        className={isRoot ? css.mainRow : css.sideRow}
+        aria-disabled={stale || undefined}
+        className={`${isRoot ? css.mainRow : css.sideRow}${stale ? ` ${css.stale}` : ''}`}
       >
         <button
           type="button"
-          className={css.rowOpen}
+          className={stale ? `${css.rowOpen} ${css.rowOpenDisabled}` : css.rowOpen}
+          disabled={stale}
           onClick={() => { openConversation(ctx, id, sessionList.byId[id]?.cwd) }}
         >
           {isRoot && <span className={css.dot} />}
           <span className={isRoot ? css.mainLabel : css.sideLabel}>
             {titleOf(ctx, id)}
           </span>
+          {stale && (
+            <span className={css.staleBadge}>
+              {status === 'archived' ? '已归档' : '已删除'}
+            </span>
+          )}
         </button>
         {time !== undefined && <span className={css.time}>{time}</span>}
-        {hasChildren ? (
+        {stale ? (
+          <button
+            type="button"
+            className={css.remove}
+            title="从追问记录移除（不影响 DSH 侧会话）"
+            onClick={() => { store.removeSession(id) }}
+          >
+            移除
+          </button>
+        ) : hasChildren ? (
           <button
             type="button"
             className={css.collapse}
@@ -181,6 +210,7 @@ function TreeNode(props: {
               sessionList={sessionList}
               now={now}
               parentToChildren={parentToChildren}
+              archivedIds={archivedIds}
             />
           ))}
         </div>

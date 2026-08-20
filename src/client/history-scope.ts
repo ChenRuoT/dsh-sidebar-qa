@@ -78,3 +78,79 @@ export function subtreeLatestUpdatedAt(
   }
   return visit(id)
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stale-row detection & pruning (archived / deleted sessions)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A session's life state as far as the 追问记录 tree can observe it. */
+export type SessionStatus = 'live' | 'archived' | 'gone'
+
+/**
+ * Classify one session id:
+ * - `archived` — in the registry-global archive set (a DSH-side archive
+ *   hides it from every workspace's `sessionIds`, but its mapping row here
+ *   survives until pruned; check this FIRST so an archived id is never
+ *   misread as deleted while the session feed still lists it);
+ * - `gone` — absent from the session feed and not archived (deleted, or the
+ *   feed has not hydrated it yet);
+ * - `live` — present in the session feed and not archived.
+ */
+export function sessionStatus(
+  sessionId: string,
+  byId: Readonly<Record<string, unknown>>,
+  archivedSessionIds: ReadonlySet<string>,
+): SessionStatus {
+  if (archivedSessionIds.has(sessionId)) return 'archived'
+  if (byId[sessionId] === undefined) return 'gone'
+  return 'live'
+}
+
+/**
+ * The ids of one node plus its whole subtree (root included). Iterative DFS
+ * with a visited set, so a corrupted map forming a cycle terminates.
+ */
+export function subtreeIds(
+  parentToChildren: Record<string, string[]>,
+  rootId: string,
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const current = stack.pop() as string
+    if (seen.has(current)) continue
+    seen.add(current)
+    out.push(current)
+    for (const child of parentToChildren[current] ?? []) stack.push(child)
+  }
+  return out
+}
+
+/**
+ * A new parent→children map with one subtree removed:
+ * - the subtree's own keys are deleted (its descendants must not resurface
+ *   as roots once their ancestor row is pruned);
+ * - every remaining parent's children list drops any id inside the subtree
+ *   (covers both the removed root and dangling references to removed
+ *   descendants from a corrupted map).
+ * Unknown ids return the input map unchanged.
+ */
+export function removeSubtree(
+  parentToChildren: Record<string, string[]>,
+  rootId: string,
+): Record<string, string[]> {
+  const removed = new Set(subtreeIds(parentToChildren, rootId))
+  const out: Record<string, string[]> = {}
+  let changed = false
+  for (const [parentId, children] of Object.entries(parentToChildren)) {
+    if (removed.has(parentId)) {
+      changed = true
+      continue
+    }
+    const kept = children.filter(child => !removed.has(child))
+    if (kept.length !== children.length) changed = true
+    out[parentId] = kept
+  }
+  return changed ? out : parentToChildren
+}

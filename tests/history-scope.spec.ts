@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SidebarqaWorkspaceView } from '../src/context-types.ts'
 import {
-  filterHistoryToWorkspace, rootsOf, subtreeLatestUpdatedAt, workspaceOwningSession,
+  filterHistoryToWorkspace, removeSubtree, rootsOf, sessionStatus, subtreeIds,
+  subtreeLatestUpdatedAt, workspaceOwningSession,
 } from '../src/client/history-scope.ts'
 
 function workspace(id: string, sessionIds: string[]): SidebarqaWorkspaceView {
@@ -100,5 +101,69 @@ describe('subtreeLatestUpdatedAt', () => {
     const tree = { a: ['b'], b: ['a'] }
     const of = (id: string): number | undefined => (id === 'a' ? 1 : 2)
     expect(subtreeLatestUpdatedAt('a', tree, of)).toBe(2)
+  })
+})
+
+describe('sessionStatus', () => {
+  it('live when present in the session feed and not archived', () => {
+    expect(sessionStatus('s1', { s1: {} }, new Set())).toBe('live')
+  })
+
+  it('archived wins over a present feed entry (archive check comes first)', () => {
+    expect(sessionStatus('s1', { s1: {} }, new Set(['s1']))).toBe('archived')
+  })
+
+  it('archived even when the feed no longer lists the session', () => {
+    expect(sessionStatus('s1', {}, new Set(['s1']))).toBe('archived')
+  })
+
+  it('gone when absent from the feed and not archived', () => {
+    expect(sessionStatus('s1', {}, new Set())).toBe('gone')
+  })
+})
+
+describe('subtreeIds', () => {
+  const tree = { main1: ['side1', 'side2'], side1: ['nested'], side2: [] }
+
+  it('collects the node and all descendants', () => {
+    expect(subtreeIds(tree, 'main1').sort()).toEqual(['main1', 'side1', 'side2', 'nested'].sort())
+    expect(subtreeIds(tree, 'side1')).toEqual(['side1', 'nested'])
+    expect(subtreeIds(tree, 'side2')).toEqual(['side2'])
+  })
+
+  it('includes the root itself even without a mapping key', () => {
+    expect(subtreeIds({}, 'unknown')).toEqual(['unknown'])
+  })
+
+  it('terminates on a cyclic map (corrupted localStorage)', () => {
+    const cyclic = { a: ['b'], b: ['a'] }
+    expect(subtreeIds(cyclic, 'a').sort()).toEqual(['a', 'b'].sort())
+  })
+})
+
+describe('removeSubtree', () => {
+  it('unlinks the root from its parent and keeps siblings', () => {
+    const tree = { main1: ['side1', 'side2'], side1: ['nested'], side2: [] }
+    expect(removeSubtree(tree, 'side1')).toEqual({ main1: ['side2'], side2: [] })
+  })
+
+  it('drops the whole subtree so descendants do not resurface as roots', () => {
+    const tree = { main1: ['side1'], side1: ['nested'], nested: [] }
+    const next = removeSubtree(tree, 'main1')
+    expect(next).toEqual({})
+    expect(rootsOf(next)).toEqual([])
+  })
+
+  it('drops dangling references to removed descendants (corrupted map)', () => {
+    // nested is referenced by main2 but lives under the removed side1 subtree.
+    // The dangling edge is pruned; main1 — side1's real parent — stays as an
+    // empty-shell leaf (same convention as filterHistoryToWorkspace).
+    const tree = { main1: ['side1'], side1: ['nested'], main2: ['nested'] }
+    expect(removeSubtree(tree, 'side1')).toEqual({ main1: [], main2: [] })
+  })
+
+  it('returns the input map unchanged for an unknown id', () => {
+    const tree = { main1: ['side1'] }
+    expect(removeSubtree(tree, 'unknown')).toBe(tree)
   })
 })

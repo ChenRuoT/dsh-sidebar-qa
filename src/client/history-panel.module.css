@@ -149,3 +149,49 @@
   background: var(--dsw-alias-border-l2);
   flex: none;
 }
+
+/* Stale rows (archived / deleted sessions): dimmed, no hover affordance. */
+.stale {
+  opacity: 0.55;
+}
+
+.stale:hover {
+  background: transparent;
+}
+
+.rowOpenDisabled {
+  cursor: default;
+}
+
+/* Status chip on stale rows ("已归档" / "已删除"). */
+.staleBadge {
+  flex: none;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-interactive-bg-hover);
+  white-space: nowrap;
+}
+
+/* "移除" entry on stale rows: prunes the subtree from the 追问记录 mapping
+   (the DSH-side session is untouched). */
+.remove {
+  flex: none;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.remove:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}

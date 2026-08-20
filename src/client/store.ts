@@ -10,6 +10,8 @@
  * session" when it appears as a child; its root (main) session is reached by
  * walking the parent chain to the top.
  */
+import { removeSubtree, subtreeIds } from './history-scope.ts'
+
 const STORAGE_KEY = 'dsh-sidebar-qa:map'
 const TITLED_STORAGE_KEY = 'dsh-sidebar-qa:titled'
 const COLLAPSED_STORAGE_KEY = 'dsh-sidebar-qa:collapsed'
@@ -53,6 +55,13 @@ export interface SidebarqaStore {
   isCollapsed(sessionId: string): boolean
   /** Flip a tree node's collapse state in 追问记录 (persisted). */
   toggleCollapsed(sessionId: string): void
+  /**
+   * Remove one session's whole subtree from the mapping (追问记录 "移除" entry
+   * for archived / deleted sessions): the id is unlinked from its parent, its
+   * descendants lose their rows (they must not resurface as roots), and any
+   * derived state (titled / collapsed) for the subtree is cleared.
+   */
+  removeSession(sessionId: string): void
 }
 
 /** Parse the persisted map, tolerating any corruption. */
@@ -227,6 +236,29 @@ export function createSidebarqaStore(): SidebarqaStore {
       else next.add(sessionId)
       collapsedSessions = next
       saveCollapsed(collapsedSessions)
+      notify()
+    },
+    removeSession(sessionId: string): void {
+      if (sessionId === '') return
+      const known = parentToChildren[sessionId] !== undefined
+        || Object.values(parentToChildren).some(children => children.includes(sessionId))
+      if (!known) return
+      const subtree = subtreeIds(parentToChildren, sessionId)
+      const next = removeSubtree(parentToChildren, sessionId)
+      parentToChildren = next
+      saveMap(next)
+      if (subtree.some(id => titledSessions.has(id))) {
+        const nextTitled = new Set(titledSessions)
+        for (const id of subtree) nextTitled.delete(id)
+        titledSessions = nextTitled
+        saveTitled(nextTitled)
+      }
+      if (subtree.some(id => collapsedSessions.has(id))) {
+        const nextCollapsed = new Set(collapsedSessions)
+        for (const id of subtree) nextCollapsed.delete(id)
+        collapsedSessions = nextCollapsed
+        saveCollapsed(nextCollapsed)
+      }
       notify()
     },
   }

@@ -390,6 +390,13 @@ export interface SidebarqaWorkspaceView {
 /** The client workspaces list snapshot. */
 export interface SidebarqaWorkspaceListSnapshot {
   items: SidebarqaWorkspaceView[]
+  /**
+   * Registry-global archive set (mirror of the runtime's
+   * `archivedSessionIds`): sessions hidden from grouping surfaces (they leave
+   * every workspace's `sessionIds`) but still accounted. The 追问记录 tab uses
+   * it to label archived sessions whose mapping row survives the archive.
+   */
+  archivedSessionIds: readonly string[]
 }
 
 /** The client workspaces service face (only the list feed is needed). */
