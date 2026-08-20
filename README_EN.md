@@ -58,7 +58,7 @@ Restart `dsh web` (host-half changes need a restart; client-half changes only ne
 
 ## Configuration
 
-Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the settings page). **Web entry point**: DSH Settings → Side Cards → the gear 「功能配置」 popup on the 「追问」 card (provided by dsh-better-sidebar v0.12+ `settings.render`), editing the fields below — text rows commit on blur/Enter, number rows clamp to their range, writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (conflicts prompt a retry).
+Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the settings page). **Web entry point**: DSH Settings → Side Cards → the gear 「功能配置」 popup on the 「追问」 card (provided by dsh-better-sidebar v0.12+ `settings.render`), editing the fields below — text rows commit on blur/Enter, number rows clamp to their range, writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (conflicts prompt a retry). The answer and summary channel/model rows are dropdowns fed from the runtime's configured channels.
 
 | Key | Default | Description |
 |---|---|---|
@@ -95,6 +95,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── ensure-panel.ts     collapsed-panel self-heal: expansion decision + expand via SidebarStore (pure, tested)
     ├── tab-activation.ts   onActivate bridge: re-heal when a tab is re-activated after a manual collapse (issue #6)
     ├── orchestrate.ts      create → placeholder rename → selectModel (default flash / thinking off) → prompt + continue + post-answer retitle
+    ├── ConfigPanel.tsx     config gear popup (edits the sidebarqa namespace; answer channel/model dropdowns)
+    ├── config-fields.ts    config row declarations + number coercion + catalog option resolution (pure, tested)
     ├── store.ts            parent→child map (localStorage-persisted, nested) + pending quotes + titled marks
     ├── injection.ts        XML escape/sanitize + injection format + placeholder topic
     ├── answer.ts           history stream → answer text folding

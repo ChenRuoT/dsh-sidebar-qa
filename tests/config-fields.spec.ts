@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CATALOG_INHERIT_VALUE,
   CONFIG_FIELDS,
   HISTORY_STRATEGY_OPTIONS,
+  modelOptionsOf,
+  providerOptionsOf,
   REASONING_EFFORT_OPTIONS,
   coerceNumberField,
 } from '../src/client/config-fields.ts'
+import type { SidebarqaCatalog } from '../src/context-types.ts'
+
+const CATALOG: SidebarqaCatalog = {
+  providers: [
+    {
+      provider: 'deepseek-official',
+      displayName: 'DeepSeek',
+      models: [
+        { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+        { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+      ],
+    },
+    { provider: 'openai', displayName: 'OpenAI', models: [{ id: 'gpt-5', name: 'GPT-5' }] },
+  ],
+}
 
 describe('coerceNumberField', () => {
   it('parses and clamps to the declared range', () => {
@@ -74,6 +92,80 @@ describe('CONFIG_FIELDS', () => {
     expect(field?.type).toBe('number')
     expect(field?.min).toBe(1)
     expect(field?.max).toBe(256)
+  })
+
+  it('declares the answer/summarize provider + model as catalog rows', () => {
+    const answerProvider = CONFIG_FIELDS.find(candidate => candidate.key === 'answerProvider')
+    const answerModel = CONFIG_FIELDS.find(candidate => candidate.key === 'answerModel')
+    const summarizeProvider = CONFIG_FIELDS.find(candidate => candidate.key === 'summarizeProvider')
+    const summarizeModel = CONFIG_FIELDS.find(candidate => candidate.key === 'summarizeModel')
+    expect(answerProvider?.type).toBe('catalog')
+    expect(answerProvider?.source).toBe('answerProvider')
+    expect(answerModel?.type).toBe('catalog')
+    expect(answerModel?.source).toBe('answerModel')
+    expect(summarizeProvider?.type).toBe('catalog')
+    expect(summarizeProvider?.source).toBe('summarizeProvider')
+    expect(summarizeModel?.type).toBe('catalog')
+    expect(summarizeModel?.source).toBe('summarizeModel')
+  })
+})
+
+describe('providerOptionsOf', () => {
+  it('maps catalog providers to select options in catalog order', () => {
+    expect(providerOptionsOf(CATALOG.providers, 'answerProvider')).toEqual([
+      { value: 'deepseek-official', label: 'DeepSeek' },
+      { value: 'openai', label: 'OpenAI' },
+    ])
+  })
+
+  it('prepends the inherit sentinel for the summarize channel', () => {
+    expect(providerOptionsOf(CATALOG.providers, 'summarizeProvider')).toEqual([
+      { value: CATALOG_INHERIT_VALUE, label: '继承被追问会话' },
+      { value: 'deepseek-official', label: 'DeepSeek' },
+      { value: 'openai', label: 'OpenAI' },
+    ])
+  })
+
+  it('yields only the inherit entry for an empty catalog', () => {
+    expect(providerOptionsOf([], 'summarizeProvider')).toEqual([
+      { value: CATALOG_INHERIT_VALUE, label: '继承被追问会话' },
+    ])
+    expect(providerOptionsOf([], 'answerProvider')).toEqual([])
+  })
+})
+
+describe('modelOptionsOf', () => {
+  it('maps a chosen provider\'s models to select options', () => {
+    expect(modelOptionsOf(CATALOG.providers, 'deepseek-official')).toEqual([
+      { value: 'deepseek-v4-flash', label: 'DeepSeek-V4-Flash' },
+      { value: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro' },
+    ])
+  })
+
+  it('yields [] for an unknown provider', () => {
+    expect(modelOptionsOf(CATALOG.providers, 'nope')).toEqual([])
+  })
+
+  it('flattens the whole catalog when the channel is inherit (empty)', () => {
+    expect(modelOptionsOf(CATALOG.providers, CATALOG_INHERIT_VALUE)).toEqual([
+      { value: 'deepseek-v4-flash', label: 'DeepSeek-V4-Flash' },
+      { value: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro' },
+      { value: 'gpt-5', label: 'GPT-5' },
+    ])
+  })
+
+  it('deduplicates model ids by id across providers', () => {
+    const dupCatalog: SidebarqaCatalog = {
+      providers: [
+        ...CATALOG.providers,
+        { provider: 'gateway', displayName: 'Gateway', models: [{ id: 'deepseek-v4-flash', name: 'Proxy Flash' }] },
+      ],
+    }
+    expect(modelOptionsOf(dupCatalog.providers, CATALOG_INHERIT_VALUE)).toEqual([
+      { value: 'deepseek-v4-flash', label: 'DeepSeek-V4-Flash' },
+      { value: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro' },
+      { value: 'gpt-5', label: 'GPT-5' },
+    ])
   })
 })
 

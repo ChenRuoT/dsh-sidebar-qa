@@ -5,6 +5,7 @@
  */
 import type { Context } from '../context-types.ts'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
+import type { SidebarqaCatalog } from '../context-types.ts'
 
 /** One wire failure. */
 export class SidebarqaApiError extends Error {
@@ -85,6 +86,8 @@ export const sidebarqaApi = {
     call<TitleResult>('title', payload, signal),
   config: (signal?: AbortSignal) =>
     call<SidebarqaConfigView>('config', {}, signal),
+  catalog: (signal?: AbortSignal) =>
+    call<SidebarqaCatalog>('catalog', {}, signal),
   configGet: (signal?: AbortSignal) =>
     call<SidebarqaConfigEnvelope>('config.get', {}, signal),
   configUpdate: (patch: Record<string, unknown>, expectedRevision?: number) =>
