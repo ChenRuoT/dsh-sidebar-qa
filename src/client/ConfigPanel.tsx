@@ -211,7 +211,9 @@ export function ConfigPanel(): ReactElement {
         : null
     const base = scoping === null
       ? providerOptionsOf(providers, source ?? '')
-      : modelOptionsOf(providers, scoping)
+      : source === 'answerModel' && scoping === ''
+        ? []
+        : modelOptionsOf(providers, scoping)
     return stored !== '' && !base.some(option => option.value === stored)
       ? [...base, { value: stored, label: stored }]
       : base
