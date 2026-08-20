@@ -19,6 +19,7 @@ import { SelectionPopover } from './SelectionPopover.tsx'
 import { createSelectionController } from './selection.ts'
 import { createSidebarqaStore } from './store.ts'
 import type { PendingQuote } from './store.ts'
+import { notifyTabActivated } from './tab-activation.ts'
 
 /** Services required before mounting (provided by the client runtime; betterSidebar by dsh-better-sidebar). */
 export const inject = ['betterSidebar', 'sessions', 'connection', 'workspaces']
@@ -66,7 +67,11 @@ export function apply(ctx: Context): void {
       settings: {
         render: () => <ConfigPanel />,
       },
-      component: (props) => <AskPanel {...props} store={store} />,
+      component: (props) => <AskPanel {...props} bsStore={props.store} store={store} />,
+      // Re-activation heal (issue #6): when the user collapsed the panel and
+      // clicks 提问 again, openTab only re-focuses the existing tab (no
+      // remount) — the activation signal lets the mounted panel self-heal.
+      onActivate: () => notifyTabActivated(),
     })
     const offHistory = ctx.betterSidebar.registerTab({
       id: 'dsh-sidebar-qa:history',
@@ -74,7 +79,8 @@ export function apply(ctx: Context): void {
       icon: (size: number) => <IconQueueOutline14 size={size} />,
       order: 70,
       single: true,
-      component: (props) => <HistoryPanel {...props} store={store} />,
+      component: (props) => <HistoryPanel {...props} bsStore={props.store} store={store} />,
+      onActivate: () => notifyTabActivated(),
     })
     return () => {
       offAsk()

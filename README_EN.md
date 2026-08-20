@@ -18,7 +18,7 @@
 
 ## ✨ Features
 
-- **📝 Select-and-ask**: select any text in a conversation → floating “提问” button → an embedded Q&A in the right panel, without ever leaving the main window
+- **📝 Select-and-ask**: select any text in a conversation → floating “提问” button → an embedded Q&A in the right panel, without ever leaving the main window; **the panel auto-expands even when collapsed**, so 提问 always has visible feedback
 - **🧠 Smart summary**: a fast no-thinking model compresses the main conversation context into a small summary, injected with the quoted selection in the first message
 - **🔗 Dedicated sessions**: each follow-up is a real DSH session in the same workspace (`❓追问·<topic>`), continuable and archivable, with zero interruption to the main conversation
 - **🪆 Nested follow-ups**: select text inside a follow-up conversation and ask again — follow-ups nest arbitrarily deep
@@ -50,7 +50,7 @@ Restart `dsh web` (host-half changes need a restart; client-half changes only ne
 
 ## Usage
 
-1. In any conversation (main or a follow-up), select some text and click the floating 「提问」 button.
+1. In any conversation (main or a follow-up), select some text and click the floating 「提问」 button. The panel auto-expands even when it is **collapsed** (see [issue #6](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/6)) — the 「追问」 tab becomes visible right away, including the repeat scenario "collapse the panel manually, then click 提问 again".
 2. The right 「追问」 panel becomes an **embedded conversation**: the quote/question streams the answer inside the sidebar, with the input box pinned at the bottom — **it never jumps to the child session's main window**.
 3. While answering, keep typing follow-up questions in the input (Enter to send, Shift+Enter for a newline); all Q&A stays in the sidebar.
 4. Every follow-up is still an independent session in the same workspace (`❓追问·<topic>`), with zero interruption to the main conversation; follow-ups **nest** (select text inside a follow-up and ask to spawn a sub-follow-up).
@@ -92,6 +92,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── HistoryPanel.tsx    追问记录 tab (tree: collapse buttons + last-activity time + workspace scope)
     ├── history-scope.ts    workspace resolution + tree filtering + subtree last-activity (pure, tested)
     ├── history-time.ts     relative-time buckets + zh labels (pure, tested, left-panel style)
+    ├── ensure-panel.ts     collapsed-panel self-heal: expansion decision + expand via SidebarStore (pure, tested)
+    ├── tab-activation.ts   onActivate bridge: re-heal when a tab is re-activated after a manual collapse (issue #6)
     ├── orchestrate.ts      create → placeholder rename → selectModel (default flash / thinking off) → prompt + continue + post-answer retitle
     ├── store.ts            parent→child map (localStorage-persisted, nested) + pending quotes + titled marks
     ├── injection.ts        XML escape/sanitize + injection format + placeholder topic
@@ -138,7 +140,7 @@ The overarching instruction goes **first** so the attention mechanism sets “fo
 ```bash
 pnpm install
 pnpm build      # tsc declarations + tsdown (lib/index.js + lib/client.js + lib/client-registry.js)
-pnpm test       # vitest (injection / summarize / answer / store / history-scope / history-time)
+pnpm test       # vitest (injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / context-meter / config / ensure-panel / tab-activation)
 pnpm typecheck
 ```
 

@@ -20,6 +20,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from 'cordis'
+import type { SidebarqaSidebarStore } from './client/ensure-panel.ts'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Host faces
@@ -153,6 +154,15 @@ export interface SidebarqaTabDescriptor {
   hidden?: boolean
   single?: boolean
   settings?: SidebarqaSettingsDeclaration
+  /**
+   * Lifecycle callback (better-sidebar v0.12.0+, `tabLifecycle` feature): fired
+   * when the tab is focused — dedupe focus, id safety-net focus, tab-bar click —
+   * and, crucially for issue #6, EVEN when `openTab` merely re-focuses an
+   * already-active tab (the reducer runs first, then the callback fires
+   * unconditionally). The 提问 flow uses it to self-heal a collapsed panel on
+   * re-activation after the user manually collapsed it.
+   */
+  onActivate?: (tab: { id: string; type: string }, scope: { sessionId: string; cwd?: string }) => void
   component: (props: SidebarqaTabComponentProps) => unknown
 }
 
@@ -162,6 +172,9 @@ export interface SidebarqaTabComponentProps {
   scope: { sessionId: string; cwd?: string }
   tab: { id: string; type: string; title: string; path?: string; diff?: unknown; meta?: unknown }
   visible: boolean
+  /** The better-sidebar state store (its own, NOT this plugin's localStorage store).
+   *  Present at runtime; typed optional so host-half compilation never needs it. */
+  store?: SidebarqaSidebarStore
 }
 
 /** The betterSidebar registry service published as `ctx.betterSidebar`. */

@@ -16,22 +16,37 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarqaSessionListSnapshot, SidebarqaTabComponentProps } from '../context-types.ts'
 import type { SidebarqaStore } from './store.ts'
+import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-panel.ts'
+import { onTabActivated } from './tab-activation.ts'
 import { filterHistoryToWorkspace, rootsOf, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
 import { timeLabel } from './history-time.ts'
 import css from './history-panel.module.css'
 
-interface HistoryPanelProps extends SidebarqaTabComponentProps {
+interface HistoryPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
   store: SidebarqaStore
+  /** The better-sidebar state store (self-healing panel expansion, issue #6). */
+  bsStore?: SidebarqaSidebarStore
 }
 
 /** How often the relative-time labels refresh while the tab is visible. */
 const NOW_TICK_MS = 60_000
 
-export function HistoryPanel({ ctx, store, scope, visible }: HistoryPanelProps) {
+export function HistoryPanel({ ctx, store, scope, visible, bsStore }: HistoryPanelProps) {
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
+
+  // Self-healing panel expansion (issue #6): the 追问记录 tab is also opened
+  // by a type-only openTab (+ menu / 跳转), which never auto-expands a
+  // collapsed panel. Heal on mount (fresh tab) and on re-activation (the
+  // panel was collapsed since the tab's last focus — openTab only re-focuses,
+  // never remounts).
+  useEffect(() => {
+    if (bsStore === undefined) return
+    expandPanelIfCollapsed(bsStore)
+    return onTabActivated(() => expandPanelIfCollapsed(bsStore))
+  }, [bsStore])
 
   // The workspace feed (session↔workspace membership is not in the session
   // list; the workspaces list is the authoritative projection).

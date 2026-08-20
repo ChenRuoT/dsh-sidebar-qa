@@ -18,7 +18,7 @@
 
 ## ✨ 功能一览
 
-- **📝 划选提问**：对话中划选任意文本 → 浮层「提问」→ 右侧面板内嵌问答，全程不跳转大窗口
+- **📝 划选提问**：对话中划选任意文本 → 浮层「提问」→ 右侧面板内嵌问答，全程不跳转大窗口；**侧边栏面板收起时也会自动展开**，「提问」永远有可见反馈
 - **🧠 智能摘要**：快速无思考模型把主对话上下文压缩成小摘要，与划选引文一起注入首条消息
 - **🔀 三种上下文策略**：每次提问可在「全量继承（fork+缓存命中）/ 压缩 / 机械裁切」间切换，面板内选择器 + 配置默认值双入口
 - **🔗 独立会话**：自动创建同工作区独立 DSH 会话（`❓追问·<主题>`），可继续、可归档，主对话零打断
@@ -31,10 +31,10 @@
 
 ## 前置依赖（必装）
 
-`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话）。
+`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话），且需 **`0.14.0+`**（对应 **DSH `0.1.0-rc.8`**；rc.7 及更早的 DSH 环境无法解析本插件的 peer 依赖，请先升级 DSH）。
 
 ```bash
-dsh plugin --profile web add dsh-better-sidebar
+dsh plugin --profile web add dsh-better-sidebar@latest
 ```
 
 ## 安装
@@ -51,7 +51,7 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 使用
 
-1. 在任意对话（主对话或追问对话）中划选一段文本，点击浮层「提问」。
+1. 在任意对话（主对话或追问对话）中划选一段文本，点击浮层「提问」。即使右侧面板处于**收起**状态也会自动展开（对应 [issue #6](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/6)），「追问」tab 直接可见——包括"先手动收起面板、再点提问"的重复场景。
 2. 右侧「追问」面板变成一条**内嵌对话**：引文/问题在侧边栏内流式回答，输入框固定在下方面板底部，**不会跳转到子对话大窗口**。
 3. 回答过程中可在输入框继续追问（Enter 发送、Shift+Enter 换行），所有问答都在侧边栏内完成。面板底部的**输入框复用 DSH 主对话的输入栏外观**（同一套设计 token 的圆角胶囊卡片）：发起新追问时左侧是**上下文策略** chip，右侧的**模型选择**（与主对话同一份 `session.models/selectModel` 数据，切换互通）与 **context 占用环**（复用 `contextPressure` 投影）始终可见——新追问时它们绑定**被追问的父会话**（context 环即父会话占用，可据此判断用全量还是裁切；在面板切换模型会立即改父会话模型，全量继承的子会话天然沿用它，压缩/裁切子会话则使用你选的模型），继续已有追问时绑定该追问会话；最右侧为**上箭头发送键**。
 4. 每个追问仍是同工作区的独立会话（`❓追问·<主题>`），主对话零打断；追问可以**嵌套**（在追问对话里再划选提问会生成新的子追问）。发起新追问时，输入框左侧的**上下文策略** chip 可选择策略（默认取配置 `historyStrategy`）：
@@ -101,6 +101,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── model-menu.ts        模型目录扁平化/选中解析（纯函数，可测）
     ├── ContextMeter.tsx     context 占用环（contextPressure 投影 + breakdown 面板）
     ├── context-meter.ts     占用百分比/紧凑 token 格式化（纯函数，可测）
+    ├── ensure-panel.ts      面板收起自愈：展开判定 + 经 SidebarStore 展开（纯函数，可测）
+    ├── tab-activation.ts    onActivate 激活桥：收起后重新激活 tab 时再次自愈（issue #6）
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成
@@ -159,7 +161,7 @@ ctx.betterSidebar.openTab(
 ```bash
 pnpm install
 pnpm build      # tsc 声明 + tsdown（lib/index.js + lib/client.js + lib/client-registry.js）
-pnpm test       # vitest 单测（injection / summarize / answer / store / history-scope / history-time）
+pnpm test       # vitest 单测（injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / context-meter / config / ensure-panel / tab-activation）
 pnpm typecheck
 ```
 

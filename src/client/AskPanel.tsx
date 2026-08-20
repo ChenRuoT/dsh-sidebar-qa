@@ -18,11 +18,15 @@ import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
 import { resolveMetaQuote, consumeMetaQuote, resolveAskMode } from './meta-quote.ts'
+import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-panel.ts'
+import { onTabActivated } from './tab-activation.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
-interface AskPanelProps extends SidebarqaTabComponentProps {
+interface AskPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
   store: SidebarqaStore
+  /** The better-sidebar state store (self-healing panel expansion, issue #6). */
+  bsStore?: SidebarqaSidebarStore
 }
 
 /** Reference-stable code-block copy labels (MarkdownText clears its streaming cache on identity change). */
@@ -31,8 +35,25 @@ const CODE_LABELS = { copyLabel: '复制', copiedLabel: '已复制' }
 type Phase = 'idle' | 'asking' | 'answering' | 'error'
 
 export function AskPanel(props: AskPanelProps) {
-  const { ctx, scope, visible, store } = props
+  const { ctx, scope, visible, store, bsStore } = props
   const sessionId = scope.sessionId
+
+  // Self-healing panel expansion (issue #6): better-sidebar only auto-expands
+  // a collapsed panel for content opens, so the 追问 tab opened by a type-only
+  // openTab used to land invisible. Two triggers:
+  // - MOUNT: a freshly created tab landed in a possibly collapsed panel (the
+  //   tab component is rendered even while the panel is collapsed — `visible`
+  //   only pauses live views);
+  // - RE-ACTIVATION: the user collapsed the panel, then clicked 提问 again —
+  //   openTab merely re-focuses the existing tab (no remount), so only the
+  //   activation signal (fired even for an already-active tab) reaches us.
+  // A plain manual collapse never fires onActivate, so a deliberate layout is
+  // never fought.
+  useEffect(() => {
+    if (bsStore === undefined) return
+    expandPanelIfCollapsed(bsStore)
+    return onTabActivated(() => expandPanelIfCollapsed(bsStore))
+  }, [bsStore])
 
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
