@@ -129,7 +129,7 @@ export function modelOptionsOf(
     if (match === undefined) return []
     return match.models.map((model: SidebarqaLlmModel) => ({ value: model.id, label: model.name }))
   }
-  // Empty provider = the sentence "inherit the asked session's channel": the
+  // Empty provider = the sentinel "inherit the asked session's channel": the
   // model id is picked from ANY configured channel, so offer the union of all
   // catalog models (deduplicated by id, first channel wins the label).
   const seen = new Set<string>()
