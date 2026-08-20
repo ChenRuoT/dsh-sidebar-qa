@@ -2,6 +2,12 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### Changed
+
+- **回答/摘要的模型渠道与模型均改为下拉选择**：功能配置面板中「回答模型渠道 / 回答模型 / 摘要模型渠道 / 摘要模型」四行从自由文本输入改为下拉框，选项来自运行时已配置的渠道（新增 `/sidebarqa/api/catalog` 下发渠道与模型目录）。切换渠道时自动联动模型；摘要渠道额外提供「继承被追问会话」空值项。host + client 半均有改动：需重启 `dsh web` 并硬刷新浏览器。
+
 ## [0.3.1] - 2026-08-20
 
 ### Fixed

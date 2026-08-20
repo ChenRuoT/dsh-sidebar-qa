@@ -62,7 +62,7 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 配置
 
-配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）。**Web 界面入口**：DSH 设置 → 侧边卡片 → 「追问」卡片右上角的齿轮「功能配置」弹窗（由 dsh-better-sidebar v0.12+ 的 `settings.render` 提供），可逐项编辑下表字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试）。
+配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或设置页）。**Web 界面入口**：DSH 设置 → 侧边卡片 → 「追问」卡片右上角的齿轮「功能配置」弹窗（由 dsh-better-sidebar v0.12+ 的 `settings.render` 提供），可逐项编辑下表字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试）。回答/摘要的模型渠道与模型为下拉框，选项来自运行时已配置的渠道。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -104,6 +104,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── ensure-panel.ts      面板收起自愈：展开判定 + 经 SidebarStore 展开（纯函数，可测）
     ├── tab-activation.ts    onActivate 激活桥：收起后重新激活 tab 时再次自愈（issue #6）
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
+    ├── ConfigPanel.tsx       功能配置面板（设置齿轮弹窗：编辑 sidebarqa 命名空间，回答/摘要模型渠道与模型下拉）
+    ├── config-fields.ts      配置面板行声明 + 数字钳制 + catalog 选项解析（纯函数，可测）
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成
     ├── answer.ts           历史流 → 回答文本折叠

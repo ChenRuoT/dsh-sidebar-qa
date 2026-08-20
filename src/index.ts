@@ -43,7 +43,13 @@ import {
   TITLE_MAX_BYTES,
   TITLE_SYSTEM,
 } from './title.ts'
-import type { SidebarqaLlmMessage, SidebarqaSettingsScope, SidebarqaSettingsService } from './context-types.ts'
+import type {
+  SidebarqaCatalog,
+  SidebarqaLlmMessage,
+  SidebarqaLlmModel,
+  SidebarqaSettingsScope,
+  SidebarqaSettingsService,
+} from './context-types.ts'
 
 export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
 export type { SidebarqaConfig, SidebarqaHistoryStrategy, SidebarqaReasoningEffort } from './config.ts'
@@ -141,6 +147,19 @@ function buildApi(
 ): Record<string, ApiMethod> {
   return {
     config: (): SidebarqaConfig => getConfig(),
+    catalog: async (): Promise<SidebarqaCatalog> => {
+      const providers = ctx.llm.listProviders().map(async (provider) => {
+        let models: readonly SidebarqaLlmModel[] = []
+        try {
+          models = await ctx.llm.listModels(provider.id)
+        } catch {
+          // A route that cannot enumerate its models still shows up (empty
+          // model list) so the user can name the provider before its models load.
+        }
+        return { provider: provider.id, displayName: provider.name, models }
+      })
+      return { providers: await Promise.all(providers) }
+    },
     'config.get': (): { value?: unknown; revision?: number } => {
       const face = getConfigFace()
       return face?.get() ?? { value: getConfig(), revision: undefined }
