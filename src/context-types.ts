@@ -379,12 +379,19 @@ export interface SidebarqaWorkspaceListSnapshot {
   items: SidebarqaWorkspaceView[]
 }
 
-/** The client workspaces service face (only the list feed is needed). */
+/** The client workspaces service face. */
 export interface SidebarqaWorkspacesService {
   list: {
     getSnapshot(): SidebarqaWorkspaceListSnapshot
     subscribe(fn: () => void): () => void
   }
+  /**
+   * Archive a session into the registry-global archive set. Archived sessions
+   * are hidden from the left-side conversation list (grouping / flat list /
+   * search) but their records are preserved; unarchive is available via the
+   * sidebar row menu. Mirror of the runtime `IWorkspaces.archiveSession`.
+   */
+  archiveSession(sessionId: string): Promise<void>
 }
 
 // ────────────────────────────────────────────────────────────────────────────

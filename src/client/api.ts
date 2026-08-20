@@ -69,6 +69,7 @@ export interface SidebarqaConfigView {
   answerModel: string
   answerReasoningEffort: string
   titleBudgetTokens: number
+  autoArchiveAfterLeave: boolean
 }
 
 /** The config namespace envelope (value + revision for revision-guarded writes). */

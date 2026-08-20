@@ -10,7 +10,7 @@ import type { SidebarqaConfigView } from './api.ts'
 export type ConfigFieldKey = keyof SidebarqaConfigView
 
 /** One config panel row control type. */
-export type ConfigFieldType = 'text' | 'number' | 'select'
+export type ConfigFieldType = 'text' | 'number' | 'select' | 'boolean'
 
 /** One choice of a select row. */
 export interface ConfigFieldOption {
@@ -64,6 +64,7 @@ export const CONFIG_FIELDS: readonly ConfigField[] = [
   { key: 'summarizeProvider', label: '摘要模型渠道', type: 'text', placeholder: '留空 = 继承被追问会话', desc: '快速无思考摘要/标题模型的 provider' },
   { key: 'summarizeModel', label: '摘要模型', type: 'text', desc: '快速无思考模型的 id' },
   { key: 'summarizeReasoningEffort', label: '摘要思考模式', type: 'select', options: REASONING_EFFORT_OPTIONS, desc: 'Off 关闭思考；High / Max 逐级增强推理' },
+  { key: 'autoArchiveAfterLeave', label: '自动归档追问会话', type: 'boolean', desc: '关闭/切走追问面板后，自动把已完成的追问会话从主会话列表隐藏（记录仍在「追问记录」）；可在侧边栏恢复' },
 ]
 
 /**

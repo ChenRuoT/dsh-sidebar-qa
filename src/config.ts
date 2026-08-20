@@ -54,6 +54,16 @@ export interface SidebarqaConfig {
   // ── Title (post-answer retitle, reuses the summarize model route) ─────────
   /** Output-token cap for the post-answer title generation. */
   titleBudgetTokens: number
+
+  // ── Auto-archive (hide finished follow-ups from the main sidebar list) ─────
+  /**
+   * When true, a follow-up session is archived (hidden from the left-side
+   * conversation list) as soon as the user closes the 追问 panel or switches
+   * away from it — provided that session has already finished answering
+   * (not running). The session record is preserved and remains browsable in
+   * the 追问记录 tree; it can be restored via the sidebar row menu.
+   */
+  autoArchiveAfterLeave: boolean
 }
 
 /** Schema-backed defaults (also used when the settings service is absent). */
@@ -70,6 +80,7 @@ export const SIDEBARQA_DEFAULTS: SidebarqaConfig = {
   answerModel: 'deepseek-v4-flash',
   answerReasoningEffort: 'off',
   titleBudgetTokens: 64,
+  autoArchiveAfterLeave: true,
 }
 
 /** Schemastery schema for the `sidebarqa` settings namespace. */
@@ -86,4 +97,5 @@ export const SidebarqaPrefsSchema = z.object({
   answerModel: z.string().default(SIDEBARQA_DEFAULTS.answerModel),
   answerReasoningEffort: z.union(['off', 'high', 'max']).default(SIDEBARQA_DEFAULTS.answerReasoningEffort),
   titleBudgetTokens: z.number().step(1).min(16).max(256).default(SIDEBARQA_DEFAULTS.titleBudgetTokens),
+  autoArchiveAfterLeave: z.boolean().default(SIDEBARQA_DEFAULTS.autoArchiveAfterLeave),
 })

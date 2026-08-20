@@ -75,6 +75,23 @@
   width: 200px;
 }
 
+.boolLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.boolLabel input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--dsw-alias-button-primary-fill);
+}
+
 .textInput:focus,
 .numberInput:focus,
 .select:focus {

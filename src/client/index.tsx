@@ -18,6 +18,7 @@ import { HistoryPanel } from './HistoryPanel.tsx'
 import { SelectionPopover } from './SelectionPopover.tsx'
 import { createSelectionController } from './selection.ts'
 import { createSidebarqaStore } from './store.ts'
+import { sidebarqaApi } from './api.ts'
 import type { PendingQuote } from './store.ts'
 
 /** Services required before mounting (provided by the client runtime; betterSidebar by dsh-better-sidebar). */
@@ -84,4 +85,37 @@ export function apply(ctx: Context): void {
 
   // Release the selection listeners on disposal.
   ctx.effect(() => () => { selectionController.dispose() }, 'dsh-sidebar-qa: selection listeners')
+
+  // One-time cleanup of pre-existing finished follow-ups: on activation, archive
+  // every previously-created 追问 session that has already finished answering
+  // (not running) and is not the currently-open session, so historical follow-ups
+  // no longer clutter the left conversation list. The records stay browsable in
+  // the 追问记录 tree. Honors the autoArchiveAfterLeave config, is idempotent
+  // (archiving an already-archived session is a no-op), and never touches running
+  // sessions. Best-effort: failures are logged, never thrown.
+  ctx.effect(() => {
+    let disposed = false
+    void (async () => {
+      try {
+        const config = await sidebarqaApi.config()
+        if (disposed || !config.autoArchiveAfterLeave) return
+        const snapshot = store.getSnapshot()
+        const sessionList = ctx.sessions.list.getSnapshot()
+        const current = sessionList.current
+        for (const childIds of Object.values(snapshot.parentToChildren)) {
+          for (const id of childIds) {
+            if (disposed) return
+            const summary = sessionList.byId[id]
+            if (summary === undefined) continue
+            if (summary.running === true) continue
+            if (id === current) continue
+            try { await ctx.workspaces.archiveSession(id) } catch (error) { console.warn('[dsh-sidebar-qa] initial auto-archive failed:', error) }
+          }
+        }
+      } catch {
+        // config fetch failed — skip the one-time cleanup.
+      }
+    })()
+    return () => { disposed = true }
+  }, 'dsh-sidebar-qa: initial cleanup of finished follow-ups')
 }

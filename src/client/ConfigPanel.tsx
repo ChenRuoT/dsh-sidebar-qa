@@ -33,6 +33,7 @@ function FieldRow(props: {
   const { field, value, onCommit } = props
   const [draft, setDraft] = useState(value)
   const number = field.type === 'number'
+  const bool = field.type === 'boolean'
   const commit = (raw: string): void => { setDraft(onCommit(raw)) }
   return (
     <div className={css.row}>
@@ -40,7 +41,17 @@ function FieldRow(props: {
         <span className={css.title}>{field.label}</span>
         {field.desc !== undefined && field.desc !== '' && <span className={css.desc}>{field.desc}</span>}
       </span>
-      {field.type === 'select' ? (
+      {bool ? (
+        <label className={css.boolLabel}>
+          <input
+            type="checkbox"
+            checked={draft === 'true'}
+            aria-label={field.label}
+            onChange={(event) => { commit(event.currentTarget.checked ? 'true' : 'false') }}
+          />
+          <span>{draft === 'true' ? '开' : '关'}</span>
+        </label>
+      ) : field.type === 'select' ? (
         <select
           className={css.select}
           value={draft}
@@ -136,6 +147,11 @@ export function ConfigPanel(): ReactElement {
       if (clamped === null) return fallback
       commit({ [field.key]: clamped })
       return String(clamped)
+    }
+    if (field.type === 'boolean') {
+      const next = raw === 'true'
+      commit({ [field.key]: next })
+      return String(next)
     }
     commit({ [field.key]: raw })
     return raw
