@@ -135,7 +135,7 @@ describe('providerOptionsOf', () => {
 })
 
 describe('modelOptionsOf', () => {
-  it('maps a chosen provider-s models to select options', () => {
+  it('maps a chosen provider\'s models to select options', () => {
     expect(modelOptionsOf(CATALOG.providers, 'deepseek-official')).toEqual([
       { value: 'deepseek-v4-flash', label: 'DeepSeek-V4-Flash' },
       { value: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro' },
