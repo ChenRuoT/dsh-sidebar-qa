@@ -110,6 +110,7 @@ async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
       answerModel: 'deepseek-v4-flash',
       answerReasoningEffort: 'off',
       titleBudgetTokens: 64,
+      autoArchiveAfterLeave: true,
     }
   }
 }
@@ -302,5 +303,23 @@ export async function titleSideSessionOnce(
     await tryRename(ctx, sideSessionId, followUpTitle(result.title))
   } catch {
     // Retitle is best-effort: the placeholder title remains.
+  }
+}
+
+/**
+ * Archive a finished follow-up session when the user leaves the 追问 panel
+ * (auto-archive). Honors the `autoArchiveAfterLeave` config: when disabled,
+ * this is a no-op. Archiving hides the session from the left-side conversation
+ * list (native DSH archive) but preserves its records — it stays browsable in
+ * the 追问记录 tree and can be restored via the sidebar row menu.
+ * Best-effort: failures are logged, never thrown back to the panel.
+ */
+export async function archiveSideSession(ctx: Context, sideSessionId: string): Promise<void> {
+  try {
+    const config = await loadConfig(ctx)
+    if (!config.autoArchiveAfterLeave) return
+    await ctx.workspaces.archiveSession(sideSessionId)
+  } catch (error) {
+    console.warn('[dsh-sidebar-qa] auto-archive failed:', error)
   }
 }

@@ -12,7 +12,7 @@ import type { Context, SidebarqaHistoryEntry, SidebarqaModelSelection, Sidebarqa
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { lastEndSeedIndex, transcriptRowsOf, type TranscriptRow } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
-import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
+import { askFollowUp, archiveSideSession, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
 import { sidebarqaApi } from './api.ts'
 import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
@@ -60,6 +60,7 @@ export function AskPanel(props: AskPanelProps) {
   // compressed/trim children; inherit children keep the parent's model anyway.
   const [pendingModel, setPendingModel] = useState<SidebarqaModelSelection | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const prevVisibleRef = useRef(visible)
 
   const activeRunning = activeChildId !== null && sessionList.byId[activeChildId]?.running === true
   // The composer's model seat and context meter bind to the session the ask is
@@ -264,6 +265,20 @@ export function AskPanel(props: AskPanelProps) {
   useEffect(() => {
     if (!activeRunning) setPhase(prev => (prev === 'answering' ? 'idle' : prev))
   }, [activeRunning])
+
+  // Auto-archive: when the user closes the 追问 panel or switches away from it
+  // (visible → false), archive the active follow-up session so it no longer
+  // clutters the left conversation list — provided it has finished answering
+  // (not running) and the feature is enabled. The record is preserved and stays
+  // browsable in the 追问记录 tree; it can be restored via the row menu.
+  useEffect(() => {
+    const leaving = prevVisibleRef.current && !visible
+    prevVisibleRef.current = visible
+    if (!leaving) return
+    if (activeChildId === null) return
+    if (sessionList.byId[activeChildId]?.running === true) return
+    void archiveSideSession(ctx, activeChildId)
+  }, [visible, activeChildId, ctx, sessionList])
 
   const submit = async (): Promise<void> => {
     const q = question.trim()
