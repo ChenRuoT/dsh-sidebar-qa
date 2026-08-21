@@ -9,7 +9,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type FocusEvent } from 'react'
 import {
-  IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14, IconWarningOutline16,
+  IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14, IconWarningOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import type {
@@ -17,7 +17,8 @@ import type {
   SidebarqaModelProviderGroup,
   SidebarqaModelSelection,
 } from '../context-types.ts'
-import { modelChoiceId, modelChoicesOf, modelSelectionOf } from './model-menu.ts'
+import { effectiveEffortOf, isNoopSelection, modelChoiceId, modelChoicesOf, modelSelectionOf } from './model-menu.ts'
+import type { ModelSeatMode } from './model-seat.ts'
 import css from './ask-panel.module.css'
 
 /** Join truthy class names (no clsx dependency in this package). */
@@ -49,13 +50,23 @@ interface EffortChoice {
 
 export interface ModelSelectProps {
   ctx: Context
-  /** The session whose model this selector reads and writes. */
+  /**
+   * The session whose model directory this selector READS — and, in `commit`
+   * mode only, writes. `draft` / `readonly` never write it (issue #10: a new
+   * ask used to rewrite the asked session's model before its follow-up existed).
+   */
   sessionId: string
+  /** How a pick lands. Default `commit` — submit it to `sessionId`. */
+  mode?: ModelSeatMode
+  /** The selection to DISPLAY, overriding the directory's own current. */
+  value?: SidebarqaModelSelection | null
+  /** Hover hint (the read-only seat's explainer); absent leaves the tooltip off. */
+  hint?: string
   disabled?: boolean
   /**
-   * Called with the accepted selection after a switch lands. Lets the owner
-   * record "the model the next ask should use" when the seat is bound to the
-   * parent session in new-ask mode.
+   * Called with the accepted selection: after a switch lands in `commit` mode,
+   * immediately in `draft` mode. Lets the owner record "the model the next ask
+   * should use".
    */
   onChange?: (selection: SidebarqaModelSelection) => void
 }
@@ -65,7 +76,15 @@ export interface ModelSelectProps {
  * carries both verbs; the RPC surface mirrors the host's `session.models` /
  * `session.selectModel` exactly, so no plugin-to-plugin import is involved.
  */
-export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: ModelSelectProps) {
+export function ModelSelect({
+  ctx,
+  sessionId,
+  mode = 'commit',
+  value = null,
+  hint,
+  disabled = false,
+  onChange,
+}: ModelSelectProps) {
   const [dir, setDir] = useState<DirState>(IDLE)
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
@@ -76,12 +95,16 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
   const id = useId()
 
   const choices = useMemo(() => modelChoicesOf(dir), [dir])
-  const selectedIndex = dir.current === null
+  // What the seat DISPLAYS. `dir.current` is wire truth (the session's own
+  // reported model); a draft overrides it so the seat shows what the follow-up
+  // will actually use, without anything being written anywhere.
+  const selection: SidebarqaModelSelection | null = mode === 'commit' ? dir.current : (value ?? dir.current)
+  const selectedIndex = selection === null
     ? -1
-    : choices.findIndex(c => c.provider === dir.current?.provider && c.model === dir.current.model)
+    : choices.findIndex(c => c.provider === selection.provider && c.model === selection.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.reasoning
-  const effectiveEffort = dir.current?.reasoningEffort ?? reasoning?.defaultEffort
+  const effectiveEffort = effectiveEffortOf(dir, selection)
   const effortLabel = reasoning === undefined
     ? undefined
     : effectiveEffort === undefined
@@ -176,8 +199,24 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
     close()
   }
 
-  const choose = (selection: SidebarqaModelSelection): void => {
-    if (dir.current?.provider === selection.provider && dir.current.model === selection.model) {
+  const choose = (next: SidebarqaModelSelection): void => {
+    // A read-only seat (the `inherit` fork keeps the parent's model) never picks.
+    if (mode === 'readonly') {
+      close(true)
+      return
+    }
+    // A draft is local: the pick travels to the follow-up as `modelOverride`
+    // once it exists. No RPC, so the asked session is left untouched. No no-op
+    // short-circuit either — re-picking the displayed model is how the user
+    // pins a config-derived default as an explicit draft.
+    if (mode === 'draft') {
+      onChange?.(next)
+      close(true)
+      return
+    }
+    // Same route AND same effective effort is the only true no-op. The earlier
+    // guard compared provider/model only, which swallowed every effort switch.
+    if (isNoopSelection(dir, selection, next)) {
       close(true)
       return
     }
@@ -185,9 +224,9 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
     setDir(prev => ({ ...prev, status: 'selecting', error: null }))
     void ctx.connection.api.sessions.selectModel({
       sessionId,
-      provider: selection.provider,
-      model: selection.model,
-      ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
+      provider: next.provider,
+      model: next.model,
+      ...next.reasoningEffort === undefined ? {} : { reasoningEffort: next.reasoningEffort },
     }).then((response) => {
       if (gen !== generation.current) return
       const { result } = response
@@ -204,21 +243,24 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
     })
   }
 
+  // An effort-only pick keeps the route, so it MUST go through the same guard
+  // as a model pick — `isNoopSelection` folds in the model's default effort and
+  // is the single place that decides whether anything changed.
   const chooseEffort = (effort: string | undefined): void => {
-    if (dir.current === null) return
-    if (effectiveEffort === effort) {
-      close(true)
-      return
-    }
+    if (selection === null) return
     choose({
-      provider: dir.current.provider,
-      model: dir.current.model,
+      provider: selection.provider,
+      model: selection.model,
       ...effort === undefined ? {} : { reasoningEffort: effort },
     })
   }
 
-  const modelLabel = currentChoice?.name ?? '模型'
+  // Fall back to the raw model id while the directory loads, after a failed
+  // load, or for a drafted model the catalog does not list — a bare 「模型」
+  // would hide which model the ask is actually going to use.
+  const modelLabel = currentChoice?.name ?? selection?.model ?? '模型'
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  const readonly = mode === 'readonly'
   itemRefs.current = []
   let itemIndex = 0
   const itemRef = () => {
@@ -226,19 +268,24 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
     return (node: HTMLButtonElement | null) => { itemRefs.current[at] = node }
   }
 
-  return (
+  // The read-only seat uses `aria-disabled`, never the native `disabled`
+  // attribute: browsers dispatch no pointer events on a disabled control (and
+  // do not bubble them), which would silence the very hint that explains why
+  // the seat cannot be used.
+  const root = (
     <div ref={rootRef} className={css.modelRoot} onKeyDown={onRootKeyDown} onBlur={onBlur}>
       <button
         ref={triggerRef}
         type="button"
-        className={css.chip}
+        className={cx(css.chip, readonly && css.chipReadonly)}
         aria-label={`模型：${triggerLabel}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
+        aria-haspopup={readonly ? undefined : 'menu'}
+        aria-expanded={readonly ? undefined : open}
         aria-controls={open ? `${id}-menu` : undefined}
-        title={triggerLabel}
+        aria-disabled={readonly ? true : undefined}
+        title={hint === undefined ? triggerLabel : undefined}
         disabled={disabled}
-        onClick={() => { if (open) close(); else show() }}
+        onClick={() => { if (readonly) return; if (open) close(); else show() }}
       >
         <span className={css.chipLabel}>{modelLabel}</span>
         {effortLabel !== undefined && <span className={css.chipEffort}>{effortLabel}</span>}
@@ -290,7 +337,7 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
                     <section role="group" aria-labelledby={headingId} className={css.modelGroup} key={group.id}>
                       <div className={css.modelGroupTitle} id={headingId}>{group.name}</div>
                       {group.models.map((model) => {
-                        const selected = dir.current?.provider === group.id && dir.current.model === model.id
+                        const selected = selection?.provider === group.id && selection.model === model.id
                         return (
                           <button
                             ref={itemRef()}
@@ -302,8 +349,11 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
                             title={model.name}
                             disabled={busy}
                             onClick={() => {
-                              const selection = modelSelectionOf(dir, modelChoiceId(group.id, model.id))
-                              if (selection !== undefined) choose(selection)
+                              // Resolve against the DISPLAYED selection: picking
+                              // the drafted route must carry its own effort
+                              // forward, not the read session's.
+                              const picked = modelSelectionOf({ ...dir, current: selection }, modelChoiceId(group.id, model.id))
+                              if (picked !== undefined) choose(picked)
                             }}
                           >
                             <span className={css.modelOptionCopy}>
@@ -356,5 +406,14 @@ export function ModelSelect({ ctx, sessionId, disabled = false, onChange }: Mode
         </div>
       )}
     </div>
+  )
+
+  // Tooltip clones its anchor (no extra DOM, the div's own ref and onBlur are
+  // forwarded), and its `disabled` prop keeps the anchor mounted when there is
+  // no hint — so toggling the strategy never remounts the seat.
+  return (
+    <Tooltip label={hint ?? ''} side="top" delayMs={300} disabled={hint === undefined}>
+      {root}
+    </Tooltip>
   )
 }

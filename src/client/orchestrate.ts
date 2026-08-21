@@ -83,7 +83,13 @@ async function trySelectModel(
       sessionId: sideSessionId,
       provider: override?.provider ?? config.answerProvider,
       model: override?.model ?? config.answerModel,
-      reasoningEffort: override?.reasoningEffort ?? config.answerReasoningEffort,
+      // All-or-nothing on the effort axis: an override that deliberately carries
+      // NO effort means "follow the provider default" and must not be topped up
+      // with the configured effort (which would force `off` onto a thinking
+      // model the user just picked).
+      ...(override === undefined
+        ? { reasoningEffort: config.answerReasoningEffort }
+        : override.reasoningEffort === undefined ? {} : { reasoningEffort: override.reasoningEffort }),
     })
     if (!response.result.ok) console.warn('[dsh-sidebar-qa] selectModel failed:', response.result.error.message)
   } catch (error) {

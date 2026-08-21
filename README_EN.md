@@ -142,7 +142,7 @@ The overarching instruction goes **first** so the attention mechanism sets “fo
 ```bash
 pnpm install
 pnpm build      # tsc declarations + tsdown (lib/index.js + lib/client.js + lib/client-registry.js)
-pnpm test       # vitest (injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / context-meter / config / ensure-panel / tab-activation)
+pnpm test       # vitest (injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / model-seat / context-meter / config / ensure-panel / tab-activation)
 pnpm typecheck
 ```
 

@@ -13,7 +13,8 @@ import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { lastEndSeedIndex, transcriptRowsOf, type TranscriptRow } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
-import { sidebarqaApi } from './api.ts'
+import { sidebarqaApi, type SidebarqaConfigView } from './api.ts'
+import { resolveModelSeat } from './model-seat.ts'
 import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
@@ -80,13 +81,23 @@ export function AskPanel(props: AskPanelProps) {
   // Model picked in the panel for the NEXT ask (new-ask mode only): applied to
   // compressed/trim children; inherit children keep the parent's model anyway.
   const [pendingModel, setPendingModel] = useState<SidebarqaModelSelection | null>(null)
+  // The resolved plugin config; null while it loads (the seat then falls back
+  // to the read session's own model rather than a half-empty chip).
+  const [config, setConfig] = useState<SidebarqaConfigView | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const activeRunning = activeChildId !== null && sessionList.byId[activeChildId]?.running === true
-  // The composer's model seat and context meter bind to the session the ask is
-  // about: the active side session when continuing, the parent when starting a
-  // new ask (the future side session does not exist yet).
+  // The context meter binds to the session the ask is about: the active side
+  // session when continuing, the parent when starting a new ask (the future
+  // side session does not exist yet — and the parent's occupancy is exactly
+  // what tells the user whether 全量继承 or 裁切 is the right call).
   const toolSessionId = activeChildId ?? sessionId
+  // The model seat needs more than an id: a new ask must NOT write the asked
+  // session's model (issue #10), so the binding also says how a pick lands.
+  const seat = useMemo(
+    () => resolveModelSeat({ activeChildId, parentSessionId: sessionId, strategy, pendingModel, config }),
+    [activeChildId, sessionId, strategy, pendingModel, config],
+  )
 
   // ── Fork-seed anchored transcript ─────────────────────────────────────────
   // A fork (inherit) child's log leads with the parent's full history plus a
@@ -129,13 +140,15 @@ export function AskPanel(props: AskPanelProps) {
     if (scrollRef.current !== null) scrollRef.current.scrollTop = 0
   }, [activeChildId])
 
-  // Seed the per-ask strategy selector from the configured default.
+  // Seed the per-ask strategy selector — and the model seat's drafted default —
+  // from the configured values. One request feeds both.
   useEffect(() => {
     let cancelled = false
-    void sidebarqaApi.config().then((config) => {
+    void sidebarqaApi.config().then((view) => {
       if (cancelled) return
-      setStrategy(config.historyStrategy ?? 'compressed')
-    }).catch(() => { /* keep the built-in default */ })
+      setStrategy(view.historyStrategy ?? 'compressed')
+      setConfig(view)
+    }).catch(() => { /* keep the built-in defaults; the seat falls back too */ })
     return () => { cancelled = true }
   }, [])
 
@@ -438,9 +451,14 @@ export function AskPanel(props: AskPanelProps) {
           <div className={css.trailing}>
             <ModelSelect
               ctx={ctx}
-              sessionId={toolSessionId}
+              sessionId={seat.sessionId}
+              mode={seat.mode}
+              value={seat.value}
+              {...seat.hint === undefined ? {} : { hint: seat.hint }}
               disabled={busy}
-              onChange={activeChildId === null ? setPendingModel : undefined}
+              // Only a draft feeds `pendingModel`: a switch made on a child
+              // session must not silently become the next new ask's model.
+              onChange={seat.mode === 'draft' ? setPendingModel : undefined}
             />
             <ContextMeter ctx={ctx} sessionId={toolSessionId} />
             <Tooltip label="发送" side="top" delayMs={500}>

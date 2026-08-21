@@ -287,6 +287,19 @@
   cursor: default;
 }
 
+/* The read-only seat (inherit keeps the parent's model). It carries
+   aria-disabled rather than the native attribute so its tooltip still fires,
+   so the dimmed look has to be painted here. The doubled class is required:
+   .chip:hover:not(:disabled) above is 0-3-0 and would keep the hover fill. */
+.chip.chipReadonly {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.chip.chipReadonly:hover {
+  background: transparent;
+}
+
 /* The shared 16px glyphs render one step smaller on the exposed trigger. */
 .chipIcon {
   display: inline-flex;
