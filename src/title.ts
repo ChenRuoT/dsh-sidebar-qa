@@ -7,17 +7,25 @@
  * resolves outside the DSH monorepo without a runtime value import. Kept
  * dependency-free (TextEncoder only) for unit testing and shared by both the
  * host title route and the client input builder.
+ *
+ * The prompt text itself lives in `prompt-locale.ts`; the locale enters as a
+ * trailing parameter defaulting to `'zh'`, so pre-i18n callers are unaffected.
  */
+import { promptsOf, type PromptLocale } from './prompt-locale.ts'
 
-/** System prompt: emit ONLY the title, plain single line, ≤15 CJK chars. */
-export const TITLE_SYSTEM = [
-  '你是会话标题生成助手：根据下面的「问题 + 回答」提炼一个极简标题。',
-  '严格只输出标题本身，遵守：',
-  '1. 纯文本单行，禁止引号、Markdown、XML、解释、前后缀、换行或终端控制码；',
-  '2. 使用问题与回答的语言；',
-  '3. 不超过 15 个汉字（非中文语言约 6 个词以内）；',
-  '4. 直接给主题短语，不要开场白、自我陈述或任务复述。',
-].join('\n')
+/**
+ * System prompt: emit ONLY the title, plain single line, with a dual budget
+ * (≤15 CJK chars / ≤6 words). It tells the model to use the language of the
+ * question and answer — the title follows the CONTENT, not the UI language.
+ * @param locale - which language the instruction itself is written in.
+ */
+export function titleSystem(locale: PromptLocale = 'zh'): string {
+  return promptsOf(locale).titleSystem
+}
+
+/** The zh system prompt — the pre-i18n constant, kept for callers and tests
+ *  that predate the locale parameter. */
+export const TITLE_SYSTEM = titleSystem('zh')
 
 /** Max chars of the question part admitted into the title input. */
 export const TITLE_QUESTION_MAX = 400
@@ -28,7 +36,8 @@ export const TITLE_ANSWER_MAX = 1200
 /** Defensive cap on the whole input the host hands to the model. */
 export const TITLE_INPUT_MAX = 4000
 
-/** Max UTF-8 bytes of an accepted title (≈20 CJK chars; the prompt asks ≤15). */
+/** Max UTF-8 bytes of an accepted title. Script-adaptive by construction:
+ *  60 bytes ≈ 20 CJK chars ≈ 60 Latin chars ≈ 10 English words. */
 export const TITLE_MAX_BYTES = 60
 
 /** Operating-system-command escape sequences, including unterminated tails. */
@@ -87,11 +96,20 @@ export function normalizeTitle(input: string, maxBytes: number): string {
   return truncateTitleUtf8(cleaned, maxBytes).trimEnd()
 }
 
-/** Build the `问题：…\n回答：…` input for the title model, each part bounded. */
-export function buildTitleInput(question: string, answer: string): string {
+/**
+ * Build the labeled `question / answer` input for the title model, each part
+ * bounded. The labels are the ones `titleSystem` refers to, so both come from
+ * the same bundle.
+ */
+export function buildTitleInput(
+  question: string,
+  answer: string,
+  locale: PromptLocale = 'zh',
+): string {
+  const prompts = promptsOf(locale)
   const parts: string[] = []
-  if (question.trim() !== '') parts.push(`问题：${bound(question, TITLE_QUESTION_MAX)}`)
-  if (answer.trim() !== '') parts.push(`回答：${bound(answer, TITLE_ANSWER_MAX)}`)
+  if (question.trim() !== '') parts.push(`${prompts.titleQuestionLabel}${bound(question, TITLE_QUESTION_MAX)}`)
+  if (answer.trim() !== '') parts.push(`${prompts.titleAnswerLabel}${bound(answer, TITLE_ANSWER_MAX)}`)
   return parts.join('\n')
 }
 

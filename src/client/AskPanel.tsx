@@ -15,6 +15,8 @@ import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
 import { sidebarqaApi, type SidebarqaConfigView } from './api.ts'
 import { resolveModelSeat } from './model-seat.ts'
+import { t } from './locales.ts'
+import { useLocaleRevision } from './use-locale.ts'
 import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
@@ -30,14 +32,24 @@ interface AskPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
   bsStore?: SidebarqaSidebarStore
 }
 
-/** Reference-stable code-block copy labels (MarkdownText clears its streaming cache on identity change). */
-const CODE_LABELS = { copyLabel: '复制', copiedLabel: '已复制' }
-
 type Phase = 'idle' | 'asking' | 'answering' | 'error'
 
 export function AskPanel(props: AskPanelProps) {
   const { ctx, scope, visible, store, bsStore } = props
+  // Follow the DSH language: t() reads at call time, so this single root
+  // re-render re-localizes the whole subtree (keep it free of React.memo).
+  const localeRevision = useLocaleRevision()
   const sessionId = scope.sessionId
+  const tabId = props.tab.id
+
+  // An OPEN tab's title is a plain string persisted in better-sidebar's
+  // per-session state, so the registerTab title thunk (live in the + menu)
+  // never re-runs for it. Re-push it whenever the language changes; every
+  // other session's tab heals the moment the user visits it. updateTab
+  // short-circuits an unchanged title, so the mount-time call is free.
+  useEffect(() => {
+    ctx.betterSidebar.updateTab(tabId, { title: t('askTabTitle') })
+  }, [ctx, tabId, localeRevision])
 
   // Self-healing panel expansion (issue #6): better-sidebar only auto-expands
   // a collapsed panel for content opens, so the 追问 tab opened by a type-only
@@ -85,6 +97,13 @@ export function AskPanel(props: AskPanelProps) {
   // to the read session's own model rather than a half-empty chip).
   const [config, setConfig] = useState<SidebarqaConfigView | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // Identity-stable per locale — MarkdownText caches its component table on
+  // this object and discards the streaming render cache when it changes, so
+  // it must NOT be rebuilt on every render (it used to be a module const).
+  const codeLabels = useMemo(
+    () => ({ copyLabel: t('commonCopy'), copiedLabel: t('commonCopied') }),
+    [localeRevision],
+  )
 
   const activeRunning = activeChildId !== null && sessionList.byId[activeChildId]?.running === true
   // The context meter binds to the session the ask is about: the active side
@@ -325,7 +344,7 @@ export function AskPanel(props: AskPanelProps) {
         // The inherit fork can degrade to compressed when the parent is
         // mid-turn; surface that so the user knows the context was not full.
         if (result.strategy !== strategy) {
-          setStrategyNote('主对话正在回答中，已改用「压缩」模式，稍后可在主对话空闲时再试「全量继承」。')
+          setStrategyNote(t('askDegradedToCompressed'))
         }
         store.setPendingQuote(sessionId, null)
         // Consume a meta-carried quote after it was sent, so refocusing the tab
@@ -387,7 +406,7 @@ export function AskPanel(props: AskPanelProps) {
             className={css.newAsk}
             onClick={() => { setActiveChildId(null); setPhase('idle'); setError(null) }}
           >
-            新追问
+            {t('askNewAsk')}
           </button>
         </div>
       )}
@@ -397,6 +416,7 @@ export function AskPanel(props: AskPanelProps) {
           <Transcript
             rows={rows}
             running={activeRunning}
+            codeLabels={codeLabels}
             anchorSeq={anchorSeq}
             anchorRef={anchorRowRef}
             hasOlder={hasOlder}
@@ -408,22 +428,22 @@ export function AskPanel(props: AskPanelProps) {
               ? (
                 <div className={css.quoteChip}>
                   <div className={css.quoteChipHead}>
-                    引文
-                    <button type="button" className={css.quoteCancel} onClick={clearQuote}>取消</button>
+                    {t('askQuoteHead')}
+                    <button type="button" className={css.quoteCancel} onClick={clearQuote}>{t('commonCancel')}</button>
                   </div>
                   <div className={css.quoteChipText}>{pendingQuote.text}</div>
                 </div>
               )
-              : <div className={css.emptyHint}>未选择文本，可直接提问（仅不带引文）。</div>}
+              : <div className={css.emptyHint}>{t('askNoQuoteHint')}</div>}
           </div>
         )}
         {mode === 'empty' && (
-          <div className={css.emptyHint}>划选对话文本后点击「提问」，或直接输入问题。</div>
+          <div className={css.emptyHint}>{t('askEmptyHint')}</div>
         )}
       </div>
 
       {strategyNote !== null && <div className={css.strategyNote}>{strategyNote}</div>}
-      {phase === 'asking' && <div className={css.busyHint}>准备追问会话…</div>}
+      {phase === 'asking' && <div className={css.busyHint}>{t('askPreparing')}</div>}
 
       {/* DSH-style composer card: the same capsule chrome as the main
           conversation's input bar — textarea on top, action row below
@@ -432,7 +452,7 @@ export function AskPanel(props: AskPanelProps) {
         <textarea
           ref={inputRef}
           className={css.input}
-          placeholder="继续追问…（Enter 发送，Shift+Enter 换行）"
+          placeholder={t('askComposerPlaceholder')}
           value={question}
           onChange={(event) => { setQuestion(event.target.value) }}
           onKeyDown={(event) => {
@@ -454,18 +474,18 @@ export function AskPanel(props: AskPanelProps) {
               sessionId={seat.sessionId}
               mode={seat.mode}
               value={seat.value}
-              {...seat.hint === undefined ? {} : { hint: seat.hint }}
+              {...seat.hintKey === undefined ? {} : { hint: t(seat.hintKey) }}
               disabled={busy}
               // Only a draft feeds `pendingModel`: a switch made on a child
               // session must not silently become the next new ask's model.
               onChange={seat.mode === 'draft' ? setPendingModel : undefined}
             />
             <ContextMeter ctx={ctx} sessionId={toolSessionId} />
-            <Tooltip label="发送" side="top" delayMs={500}>
+            <Tooltip label={t('askSend')} side="top" delayMs={500}>
               <button
                 type="button"
                 className={css.primary}
-                aria-label="发送"
+                aria-label={t('askSend')}
                 disabled={question.trim() === '' || busy}
                 onClick={() => { void submit() }}
               >
@@ -479,7 +499,9 @@ export function AskPanel(props: AskPanelProps) {
         </div>
       </div>
 
-      {phase === 'error' && error !== null && <div className={css.error}>{error}</div>}
+      {phase === 'error' && error !== null && (
+        <div className={css.error}>{t('errAskFailed', { detail: error })}</div>
+      )}
     </div>
   )
 }
@@ -495,15 +517,18 @@ function Transcript({
   anchorSeq,
   anchorRef,
   hasOlder,
+  codeLabels,
 }: {
   rows: readonly TranscriptRow[]
   running: boolean
+  /** Identity-stable per locale (see the AskPanel memo). */
+  codeLabels: { copyLabel: string; copiedLabel: string }
   anchorSeq: number | null
   anchorRef: RefObject<HTMLDivElement>
   hasOlder: boolean
 }) {
   if (rows.length === 0) {
-    return <div className={css.emptyHint}>生成中…</div>
+    return <div className={css.emptyHint}>{t('askGenerating')}</div>
   }
   const lastIndex = rows.length - 1
   let dividerPlaced = false
@@ -517,12 +542,12 @@ function Transcript({
           <div key={row.seq} ref={isAnchor ? anchorRef : undefined}>
             {isAnchor && (
               <div className={css.seedDivider}>
-                {hasOlder ? '↑ 上方为主对话历史，继续向上滚动加载' : '↑ 上方为主对话历史'}
+                {hasOlder ? t('askSeedDividerMore') : t('askSeedDivider')}
               </div>
             )}
             {row.role === 'user'
               ? <UserRow text={row.text} />
-              : <AssistantRow text={row.text} streaming={streaming} />}
+              : <AssistantRow text={row.text} streaming={streaming} codeLabels={codeLabels} />}
           </div>
         )
       })}
@@ -531,11 +556,16 @@ function Transcript({
 }
 
 /** One assistant message: raw markdown, no card (mirrors the main conversation). */
-function AssistantRow({ text, streaming }: { text: string; streaming: boolean }) {
+function AssistantRow({ text, streaming, codeLabels }: {
+  text: string
+  streaming: boolean
+  /** Identity-stable per locale (see the AskPanel memo). */
+  codeLabels: { copyLabel: string; copiedLabel: string }
+}) {
   return (
     <div className={css.assistantRow}>
       <div className={css.assistantMarkdown}>
-        <MarkdownText text={text} streaming={streaming} codeLabels={CODE_LABELS} />
+        <MarkdownText text={text} streaming={streaming} codeLabels={codeLabels} />
       </div>
     </div>
   )

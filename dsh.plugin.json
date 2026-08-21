@@ -2,7 +2,7 @@
   "id": "dsh-external/dsh-sidebar-qa",
   "version": "0.1.0",
   "main": "./lib/index.js",
-  "description": "对话划选 → 右侧面板提问 → 同工作区独立追问会话（❓追问·主题）。极薄消费 dsh-better-sidebar，不打断主对话",
+  "description": "对话划选 → 右侧面板提问 → 同工作区独立追问会话（❓主题）。极薄消费 dsh-better-sidebar，不打断主对话",
   "engines": {
     "dsh": ">=0.0.1"
   },

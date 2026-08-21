@@ -10,6 +10,8 @@
  */
 import type { SidebarqaStreamChunk, SidebarqaSurfaceEvent } from './context-types.ts'
 
+import { promptsOf, type PromptLocale } from './prompt-locale.ts'
+
 /** Per-segment char cap for the verbatim recent window. */
 export const RECENT_SEGMENT_MAX = 400
 
@@ -99,9 +101,16 @@ export function splitRecent(
  * Render segments as role-labeled, turn-separated text (the model input for
  * the background, or the verbatim recent window).
  */
-export function formatSegments(segments: readonly SurfaceSegment[], maxPerSegment: number): string {
+export function formatSegments(
+  segments: readonly SurfaceSegment[],
+  maxPerSegment: number,
+  locale: PromptLocale = 'zh',
+): string {
+  // These role prefixes are NAMED verbatim by `backgroundSystem` — the prompt
+  // and the formatter are one atomic unit (see prompt-locale.ts).
+  const prompts = promptsOf(locale)
   return segments
-    .map(segment => `${segment.role === 'user' ? '用户' : '助手'}：${bound(segment.text, maxPerSegment)}`)
+    .map(segment => `${segment.role === 'user' ? prompts.roleUser : prompts.roleAssistant}${bound(segment.text, maxPerSegment)}`)
     .join('\n\n')
 }
 
@@ -115,10 +124,11 @@ export function buildTrimContext(
   segments: readonly SurfaceSegment[],
   count: number,
   maxPerSegment: number = TRIM_SEGMENT_MAX,
+  locale: PromptLocale = 'zh',
 ): string {
   const take = Math.max(0, count)
   const tail = segments.slice(Math.max(0, segments.length - take))
-  return formatSegments(tail, maxPerSegment)
+  return formatSegments(tail, maxPerSegment, locale)
 }
 
 /**
@@ -132,20 +142,26 @@ export function formatBackground(
   earlier: readonly SurfaceSegment[],
   count: number,
   maxPerSegment: number,
+  locale: PromptLocale = 'zh',
 ): string {
   const take = Math.max(0, count)
   const newest = earlier.slice(Math.max(0, earlier.length - take)).reverse()
-  return formatSegments(newest, maxPerSegment)
+  return formatSegments(newest, maxPerSegment, locale)
 }
 
 /**
  * Compose the final injected context: the model-compressed background plus the
  * verbatim recent window. Either part may be absent.
  */
-export function composeSummary(background: string, recent: string): string {
+export function composeSummary(
+  background: string,
+  recent: string,
+  locale: PromptLocale = 'zh',
+): string {
+  const prompts = promptsOf(locale)
   const parts: string[] = []
-  if (background.trim() !== '') parts.push(`【背景】\n${background}`)
-  if (recent.trim() !== '') parts.push(`【近期对话】\n${recent}`)
+  if (background.trim() !== '') parts.push(`${prompts.sectionBackground}\n${background}`)
+  if (recent.trim() !== '') parts.push(`${prompts.sectionRecent}\n${recent}`)
   return parts.join('\n\n')
 }
 
@@ -186,8 +202,10 @@ export async function assembleText(chunks: AsyncIterable<SidebarqaStreamChunk>):
  * prompt mirrors that ordering and tells the model to anchor on the newest
  * state first, not on the opening topic.
  */
-export const BACKGROUND_SYSTEM = [
-  '你是对话上下文压缩助手。下面是主对话【较早部分】的原文，按时间从新到旧排列（第一条是最新状态，每条以「用户：」或「助手：」开头）。',
-  '请用最多 3 句话概括，依次是：会话目标（在做什么）、当前进度（最新状态/最近完成了什么）、未决事项（没有就省略这一句）。',
-  '要求：极简、只陈述事实、禁止列清单、禁止复述指令、禁止编造；早期指令若已被后续执行，视为已完成，不要当作未决事项。',
-].join('\n')
+export function backgroundSystem(locale: PromptLocale = 'zh'): string {
+  return promptsOf(locale).backgroundSystem
+}
+
+/** The zh system prompt — the pre-i18n constant, kept for callers and tests
+ *  that predate the locale parameter. */
+export const BACKGROUND_SYSTEM = backgroundSystem('zh')

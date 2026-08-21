@@ -1,11 +1,16 @@
 /**
- * Declarative model of the webview config panel rows (pure, zero deps, testable).
+ * Declarative model of the webview config panel rows (pure and testable; its
+ * only import is the dependency-free copy dictionary).
  * The panel edits the host's `sidebarqa` namespace through the revision-guarded
  * /sidebarqa/api config routes; this module only describes the field surface and
  * the number coercion, so it stays free of React and the fetch layer.
+ *
+ * The row tables are FUNCTIONS, not consts: module-level tables would freeze
+ * their labels at import time and never follow a DSH language switch.
  */
 import type { SidebarqaConfigView } from './api.ts'
 import type { SidebarqaLlmModel, SidebarqaCatalogProvider } from '../context-types.ts'
+import { t } from './locales.ts'
 
 /** One editable config key. */
 export type ConfigFieldKey = keyof SidebarqaConfigView
@@ -24,9 +29,6 @@ export type CatalogFieldSource = 'answerProvider' | 'answerModel' | 'summarizePr
 
 /** The inherit sentinel stored for the summarize channel: '' (follow the asked session). */
 export const CATALOG_INHERIT_VALUE = ''
-
-/** Label of the summarize channel's "inherit the asked session" option. */
-export const CATALOG_INHERIT_LABEL = '继承被追问会话'
 
 /** One config panel row: a text field, a clamped number field, a select, or a
  *  provider/model dropdown sourced from the live model catalog. */
@@ -61,27 +63,37 @@ export const REASONING_EFFORT_OPTIONS: readonly ConfigFieldOption[] = [
   { value: 'max', label: 'Max' },
 ]
 
-/** The three history strategies shown as a dropdown (mirror of the host union). */
-export const HISTORY_STRATEGY_OPTIONS: readonly ConfigFieldOption[] = [
-  { value: 'inherit', label: '全量继承' },
-  { value: 'compressed', label: '压缩对话' },
-  { value: 'trim', label: '机械裁切' },
-]
+/** The three history strategies shown as a dropdown (mirror of the host union).
+ *  A FUNCTION, not a const: a module-level table would freeze its labels at
+ *  import time and never follow a locale switch. The `value`s are the persisted
+ *  protocol keys and never change. */
+export function historyStrategyOptions(): readonly ConfigFieldOption[] {
+  return [
+    { value: 'inherit', label: t('strategyInherit') },
+    { value: 'compressed', label: t('strategyCompressed') },
+    { value: 'trim', label: t('strategyTrim') },
+  ]
+}
 
 /** The config panel's editable rows, in display order. Only the knobs users
  *  plausibly tune are surfaced; the compression internals (summary budget,
  *  window sizes, title budget) keep their defaults and stay settable through
- *  the `sidebarqa` settings namespace in settings.yaml. */
-export const CONFIG_FIELDS: readonly ConfigField[] = [
-  { key: 'historyStrategy', label: '上下文策略', type: 'select', options: HISTORY_STRATEGY_OPTIONS, desc: '追问如何继承主对话上下文：全量（fork+缓存命中）/ 压缩 / 机械裁切' },
-  { key: 'trimWindowMessages', label: '裁切保留条数', type: 'number', min: 1, max: 256, desc: '机械裁切模式保留的最近消息条数（1–256）' },
-  { key: 'answerProvider', label: '回答模型渠道', type: 'catalog', source: 'answerProvider', desc: '子对话回答模型的 provider（从已配置渠道中选择）' },
-  { key: 'answerModel', label: '回答模型', type: 'catalog', source: 'answerModel', desc: '子对话回答模型的 id（随所选渠道切换）' },
-  { key: 'answerReasoningEffort', label: '回答思考模式', type: 'select', options: REASONING_EFFORT_OPTIONS, desc: 'Off 关闭思考；High / Max 逐级增强推理' },
-  { key: 'summarizeProvider', label: '摘要模型渠道', type: 'catalog', source: 'summarizeProvider', desc: '快速无思考摘要/标题模型的 provider（空 = 继承被追问会话）' },
-  { key: 'summarizeModel', label: '摘要模型', type: 'catalog', source: 'summarizeModel', desc: '快速无思考模型的 id（随所选渠道切换）' },
-  { key: 'summarizeReasoningEffort', label: '摘要思考模式', type: 'select', options: REASONING_EFFORT_OPTIONS, desc: 'Off 关闭思考；High / Max 逐级增强推理' },
-]
+ *  the `sidebarqa` settings namespace in settings.yaml.
+ *
+ *  A FUNCTION for the same reason as {@link historyStrategyOptions}: the copy
+ *  is resolved per call, so the panel re-localizes on a language switch. */
+export function configFields(): readonly ConfigField[] {
+  return [
+    { key: 'historyStrategy', label: t('cfgHistoryStrategyLabel'), type: 'select', options: historyStrategyOptions(), desc: t('cfgHistoryStrategyDesc') },
+    { key: 'trimWindowMessages', label: t('cfgTrimWindowLabel'), type: 'number', min: 1, max: 256, desc: t('cfgTrimWindowDesc') },
+    { key: 'answerProvider', label: t('cfgAnswerProviderLabel'), type: 'catalog', source: 'answerProvider', desc: t('cfgAnswerProviderDesc') },
+    { key: 'answerModel', label: t('cfgAnswerModelLabel'), type: 'catalog', source: 'answerModel', desc: t('cfgAnswerModelDesc') },
+    { key: 'answerReasoningEffort', label: t('cfgAnswerEffortLabel'), type: 'select', options: REASONING_EFFORT_OPTIONS, desc: t('cfgEffortDesc') },
+    { key: 'summarizeProvider', label: t('cfgSummarizeProviderLabel'), type: 'catalog', source: 'summarizeProvider', desc: t('cfgSummarizeProviderDesc') },
+    { key: 'summarizeModel', label: t('cfgSummarizeModelLabel'), type: 'catalog', source: 'summarizeModel', desc: t('cfgSummarizeModelDesc') },
+    { key: 'summarizeReasoningEffort', label: t('cfgSummarizeEffortLabel'), type: 'select', options: REASONING_EFFORT_OPTIONS, desc: t('cfgEffortDesc') },
+  ]
+}
 
 /**
  * Parse + clamp one number row's raw input. A non-finite input returns null so
@@ -111,7 +123,7 @@ export function providerOptionsOf(
 ): ConfigFieldOption[] {
   const rows = catalog.map(provider => ({ value: provider.provider, label: provider.displayName }))
   if (source === 'summarizeProvider') {
-    return [{ value: CATALOG_INHERIT_VALUE, label: CATALOG_INHERIT_LABEL }, ...rows]
+    return [{ value: CATALOG_INHERIT_VALUE, label: t('cfgCatalogInherit') }, ...rows]
   }
   return rows
 }

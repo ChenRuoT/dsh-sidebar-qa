@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  INHERIT_SEAT_HINT,
   resolveModelSeat,
   type ModelSeatConfig,
   type ModelSeatInput,
@@ -52,8 +51,10 @@ describe('resolveModelSeat: a new ask under inherit', () => {
   it('displays the parent model — what a fork child keeps', () => {
     expect(seat.value).toBeNull()
   })
-  it('explains itself', () => {
-    expect(seat.hint).toBe(INHERIT_SEAT_HINT)
+  it('explains itself through a copy key, not resolved text', () => {
+    // A KEY, not resolved text: AskPanel memoizes this binding, so caching
+    // the translated hint would freeze it at the memo's locale.
+    expect(seat.hintKey).toBe('modelInheritSeatHint')
   })
   it('ignores both the config and a pending draft', () => {
     expect(resolveModelSeat(input({ strategy: 'inherit', pendingModel: PENDING })).value).toBeNull()

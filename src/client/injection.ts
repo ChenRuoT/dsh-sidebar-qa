@@ -1,16 +1,28 @@
 /**
  * Context-injection formatting for the side session's first message: the
- * `【主对话上下文摘要】` block, the `<quoted_context>` XML block (own parser
- * contract, XML-escaped and sanitized), and the question. Kept pure and
- * dependency-free for unit testing.
+ * context block, the `<quoted_context>` XML block (own parser contract,
+ * XML-escaped and sanitized), and the question. Kept pure and dependency-free
+ * (its one import, `prompt-locale.ts`, is itself dependency-free) for unit
+ * testing.
+ *
+ * The model-facing wording lives in `../prompt-locale.ts`; every builder takes
+ * the locale as a trailing parameter defaulting to `'zh'`, so a caller that
+ * predates i18n produces byte-identical output.
  */
+import { promptsOf, QUESTION_LABELS, type PromptLocale } from '../prompt-locale.ts'
 import type { PendingQuote } from './store.ts'
 
 /** Maximum quoted-text length admitted into the XML block. */
 export const QUOTE_MAX_LEN = 2000
 
-/** Maximum topic length (subject of the `❓追问·<主题>` title). */
+/** Maximum topic length for CJK text (the subject of the `❓<主题>` title). */
 export const TOPIC_MAX_LEN = 12
+
+/**
+ * Maximum topic length for non-CJK text. A Latin script carries far less
+ * information per character, so the CJK budget would cut mid-phrase.
+ */
+export const TOPIC_MAX_LEN_LATIN = 24
 
 /** Escape the five XML special characters in a text node or attribute. */
 export function escapeXml(input: string): string {
@@ -81,20 +93,19 @@ export function buildQuotedContext(quote: PendingQuote, label: string): string {
  * The governing instruction prepended to the side session's first message.
  * It sits at the very start of the input so the model reads it under the
  * highest attention weight, before the (heavier) context blocks: it sets the
- * frame that this is a sidebar follow-up anchored on a SELECTED snippet, and
- * that the answer must stay on the snippet's topic instead of over-indexing
- * on the main conversation's theme.
+ * frame that this is a sidebar follow-up anchored on a SELECTED snippet, that
+ * the answer must stay on the snippet's topic instead of over-indexing on the
+ * main conversation's theme, and that the ANSWER LANGUAGE follows the user's
+ * question (not the UI language).
+ * @param locale - which language the instruction itself is written in.
  */
-export const FOLLOWUP_INTRO = [
-  '这是一次「侧边栏追问」：用户对主对话里划选的一段文本提问。',
-  '请识别用户意图，只围绕这段划选文本的主题直接、简明地回答（必要时先做概念澄清），不要复述上下文、也不要过度联系主对话的整体主题。',
-  '输出要求：第一句就进入回答正文，禁止任何开场白、自我陈述或任务复述（如"我来回答…""这个问题是关于…""直接介绍即可"之类的话一律不写）。',
-  '下面依次是参考上下文：',
-  '1. 主对话整体主题',
-  '2. 主对话最近几轮对话',
-  '3. 用户划选的文本（见 <quoted_context> 块）',
-  '4. 用户的问题',
-].join('\n')
+export function followUpIntro(locale: PromptLocale = 'zh'): string {
+  return promptsOf(locale).followUpIntro
+}
+
+/** The zh intro — the pre-i18n constant, kept for callers and tests that
+ *  predate the locale parameter. */
+export const FOLLOWUP_INTRO = followUpIntro('zh')
 
 /**
  * Build the side session's first user message: the governing intro, optional
@@ -102,40 +113,60 @@ export const FOLLOWUP_INTRO = [
  * messages pass `summary` as null (only the first message carries the
  * compressed main context).
  */
-export function buildFirstMessage(summary: string | null, quote: PendingQuote, question: string, label: string): string {
-  const parts: string[] = [FOLLOWUP_INTRO]
+export function buildFirstMessage(
+  summary: string | null,
+  quote: PendingQuote,
+  question: string,
+  label: string,
+  locale: PromptLocale = 'zh',
+): string {
+  const prompts = promptsOf(locale)
+  const parts: string[] = [prompts.followUpIntro]
   if (summary !== null && summary !== '') {
-    parts.push(`【主对话上下文】\n${boundText(summary, 12000)}`)
+    parts.push(`${prompts.contextHeading}\n${boundText(summary, 12000)}`)
   }
   parts.push(buildQuotedContext(quote, label))
-  parts.push(`问题：${sanitizeText(question)}`)
+  parts.push(`${prompts.questionLabel}${sanitizeText(question)}`)
   return parts.join('\n\n')
 }
 
 /** Build a follow-up message inside an existing side session (no summary). */
-export function buildFollowUpMessage(quote: PendingQuote | null, question: string, label: string): string {
+export function buildFollowUpMessage(
+  quote: PendingQuote | null,
+  question: string,
+  label: string,
+  locale: PromptLocale = 'zh',
+): string {
   const parts: string[] = []
   if (quote !== null && quote.text !== '') parts.push(buildQuotedContext(quote, label))
-  parts.push(`问题：${sanitizeText(question)}`)
+  parts.push(`${promptsOf(locale).questionLabel}${sanitizeText(question)}`)
   return parts.join('\n\n')
 }
 
 /**
- * Derive the `❓追问·<主题>` subject: the first non-blank line of the quote,
- * whitespace-collapsed, bounded to TOPIC_MAX_LEN; falls back to '追问'.
+ * Derive the `❓<主题>` subject: the first non-blank line of the quote,
+ * whitespace-collapsed, bounded to a script-aware budget; falls back to
+ * `fallback` (the caller passes the locale's placeholder topic).
  */
-export function topicFromQuote(text: string): string {
+export function topicFromQuote(text: string, fallback = '追问'): string {
   const firstLine = sanitizeText(text)
     .split(/\r?\n/)
     .map(line => line.trim())
     .find(line => line !== '')
-  if (firstLine === undefined || firstLine === '') return '追问'
-  return boundText(firstLine, TOPIC_MAX_LEN)
+  if (firstLine === undefined || firstLine === '') return fallback
+  // The budget follows the TEXT's script, not the UI language: a zh user
+  // quoting English needs the wide budget just as much as an en user does.
+  const budget = /[\u3040-\u30ff\u4e00-\u9fff]/.test(firstLine) ? TOPIC_MAX_LEN : TOPIC_MAX_LEN_LATIN
+  return boundText(firstLine, budget)
 }
 
-/** Build the full side-session title from a subject. */
+/**
+ * Build the full side-session title from a subject. The emoji alone marks a
+ * follow-up session, so the title carries no translatable word (and no locale
+ * switch can ever leave a session list with mixed-language prefixes).
+ */
 export function followUpTitle(subject: string): string {
-  return `❓追问·${subject}`
+  return `❓${subject}`
 }
 
 /** Parsed display form of one user message in the transcript. */
@@ -146,22 +177,32 @@ export interface ParsedUserMessage {
   question: string
 }
 
-/** Strip a leading `问题：` label, else return the trimmed text as-is. */
+/**
+ * Strip a leading question label, else return the trimmed text as-is.
+ *
+ * Tries EVERY marker the plugin has ever emitted ({@link QUESTION_LABELS}):
+ * these messages live in the DSH session log forever, so a message written
+ * under zh must still parse after the user switches to en.
+ */
 function stripQuestionLabel(text: string): string {
   const trimmed = text.trim()
-  return trimmed.startsWith('问题：') ? trimmed.slice('问题：'.length).trim() : trimmed
+  for (const label of QUESTION_LABELS) {
+    if (trimmed.startsWith(label)) return trimmed.slice(label.length).trim()
+  }
+  return trimmed
 }
 
 /**
  * Parse a user message into its display parts. The governing intro and the
- * `【主对话上下文】` summary blocks are stripped (they were consumed as model
- * context, not shown to the reader); the `<quoted_context>` body is unescaped
- * for display; the question is whatever follows the quote (first message) or
- * the whole message (plain follow-up).
+ * context summary blocks are stripped (they were consumed as model context,
+ * not shown to the reader) — structurally, by slicing past the quote block, so
+ * no localized heading is ever matched; the `<quoted_context>` body is
+ * unescaped for display; the question is whatever follows the quote (first
+ * message) or the whole message (plain follow-up).
  */
 export function parseUserMessage(text: string): ParsedUserMessage {
   // Require whitespace after `<quoted_context` so the bare prose mention in
-  // FOLLOWUP_INTRO ("见 <quoted_context> 块") never matches — only the real
+  // the intro ("见 <quoted_context> 块") never matches — only the real
   // block, which always carries ` source="agent-history" ...` attributes.
   const match = /<quoted_context\s[^>]*>([\s\S]*?)<\/quoted_context>/.exec(text)
   const quote = match === null ? null : unescapeXml(match[1]!.trim())

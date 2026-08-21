@@ -1,7 +1,7 @@
 /**
  * The ask orchestration: resolve the parent session's workspace and model,
  * assemble the parent context per the chosen history strategy, create the
- * side session, rename it `❓追问·<主题>`, then prompt with the context +
+ * side session, rename it `❓<主题>`, then prompt with the context +
  * quoted text + question. The parent session is never opened — its agent,
  * message stream, and queue are untouched.
  *
@@ -27,6 +27,8 @@ import { currentModelOf, sidebarqaApi, type ContextResult, type SidebarqaConfigV
 import { buildFirstMessage, followUpTitle, parseUserMessage, topicFromQuote } from './injection.ts'
 import { hasTurnEnded, transcriptOf } from './answer.ts'
 import { buildTitleInput } from '../title.ts'
+import { promptsOf } from '../prompt-locale.ts'
+import { promptLocale } from './locales.ts'
 import type { PendingQuote, SidebarqaStore } from './store.ts'
 import type { SidebarqaHistoryEntry, SidebarqaModelSelection } from '../context-types.ts'
 
@@ -168,7 +170,11 @@ export async function askFollowUp(
   ])
   const workspaceId = resolveWorkspaceId(ctx, parentSessionId)
   const cwd = workspaceId === undefined ? sessionCwd(ctx, parentSessionId) : undefined
-  const label = quote.role === 'user' ? '用户消息' : 'Agent 回复'
+  // The model-facing language of THIS ask (the answer language itself follows
+  // the user's question — see prompt-locale.ts — not this setting).
+  const locale = promptLocale()
+  const prompts = promptsOf(locale)
+  const label = quote.role === 'user' ? prompts.quoteLabelUser : prompts.quoteLabelAgent
 
   let strategy: SidebarqaHistoryStrategy = input.strategy ?? config.historyStrategy ?? 'compressed'
 
@@ -187,10 +193,10 @@ export async function askFollowUp(
     }
     if (forkedId !== undefined) {
       const sideSessionId = forkedId
-      await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text)))
+      await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text, prompts.fallbackTopic)))
       // No selectModel: the child keeps the parent's model so the first
       // request shares the parent's message prefix (cache hits preserved).
-      const text = buildFirstMessage(null, quote, question, label)
+      const text = buildFirstMessage(null, quote, question, label, locale)
       await tryPrompt(ctx, sideSessionId, text)
       store.addChild(parentSessionId, sideSessionId)
       onPhase?.('answering')
@@ -202,6 +208,7 @@ export async function askFollowUp(
   const contextPromise = sidebarqaApi.context({
     mainSessionId: parentSessionId,
     strategy,
+    locale,
     ...(config.summarizeProvider !== ''
       ? { provider: config.summarizeProvider }
       : currentModel !== undefined
@@ -222,10 +229,10 @@ export async function askFollowUp(
   const sideSessionId = createResponse.result.value.sessionId
   const context = await contextPromise
 
-  await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text)))
+  await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text, prompts.fallbackTopic)))
   await trySelectModel(ctx, sideSessionId, config, input.modelOverride)
 
-  const text = buildFirstMessage(context.text, quote, question, label)
+  const text = buildFirstMessage(context.text, quote, question, label, locale)
   await tryPrompt(ctx, sideSessionId, text)
 
   store.addChild(parentSessionId, sideSessionId)
@@ -272,7 +279,7 @@ function questionAndAnswerOf(events: readonly SidebarqaHistoryEntry[]): { questi
  * One-shot post-answer retitle: after the side session's FIRST turn completes,
  * fold the question + answer into a compact input, ask the fast no-thinking
  * title model (the summarize route: fixed flash / thinking off) for a ≤15-char
- * subject, and overwrite the placeholder `❓追问·<topicFromQuote>` title.
+ * subject, and overwrite the placeholder `❓<topicFromQuote>` title.
  * Fires at most once per side session (the store flag), never blocks the
  * panel, and degrades silently to the placeholder on any failure.
  */
@@ -286,8 +293,9 @@ export async function titleSideSessionOnce(
   if (store.isTitled(sideSessionId)) return
   store.markTitled(sideSessionId)
 
+  const locale = promptLocale()
   const { question, answer } = questionAndAnswerOf(events)
-  const text = buildTitleInput(question, answer)
+  const text = buildTitleInput(question, answer, locale)
   if (text.trim() === '') return
 
   try {
@@ -303,6 +311,7 @@ export async function titleSideSessionOnce(
       text,
       provider,
       model: config.summarizeModel,
+      locale,
     })
     if (result.degraded || result.title === null || result.title === '') return
     await tryRename(ctx, sideSessionId, followUpTitle(result.title))

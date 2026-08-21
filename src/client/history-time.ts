@@ -1,13 +1,15 @@
 /**
  * Compact relative-time formatting for the 追问记录 (history) rows — the same
  * presentation as the DSH left (workspace browser) panel: a bucketed relative
- * label ("刚刚"/"5分钟"/"3小时"/"2天"/"4个月"/"1年" in zh) computed from the
- * session's last-activity `updatedAt`. Zero dependencies, unit-tested.
+ * label ("刚刚"/"5分钟"/… in zh, "now"/"5m"/… in en) computed from the session's
+ * last-activity `updatedAt`. The label follows the DSH language through the
+ * dependency-free `locales.ts` dictionary; the bucketing itself is locale-free.
  *
  * The bucketing mirrors `relativeTime` from @deepseek-ai/dsh-client-ui-workspace
  * (the left panel's source of truth), restated here so the client bundle stays
  * free of a value-import from another plugin package.
  */
+import { t } from './locales.ts'
 
 export type HistoryTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' | 'years'
 
@@ -31,15 +33,17 @@ export function relativeTime(updatedAt: number, now: number): HistoryRelativeTim
   return { unit: 'years', n: Math.floor(diff / (365 * DAY)) }
 }
 
-/** The zh compact label ("刚刚" / "5分钟" / "3小时" / …) — mirror of the left panel row label. */
+/** The compact label ("刚刚" / "5分钟" / … in zh; "now" / "5m" / … in en) —
+ *  mirror of the left panel row label. The en forms are unit abbreviations,
+ *  which need no plural rules and fit the row chip better than "5 minutes". */
 export function timeLabel(updatedAt: number, now: number): string {
   const { unit, n } = relativeTime(updatedAt, now)
   switch (unit) {
-    case 'now': return '刚刚'
-    case 'minutes': return `${n}分钟`
-    case 'hours': return `${n}小时`
-    case 'days': return `${n}天`
-    case 'months': return `${n}个月`
-    case 'years': return `${n}年`
+    case 'now': return t('timeNow')
+    case 'minutes': return t('timeMinutes', { n })
+    case 'hours': return t('timeHours', { n })
+    case 'days': return t('timeDays', { n })
+    case 'months': return t('timeMonths', { n })
+    case 'years': return t('timeYears', { n })
   }
 }

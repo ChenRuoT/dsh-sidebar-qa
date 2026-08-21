@@ -8,7 +8,8 @@
 import { useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
-import { HISTORY_STRATEGY_OPTIONS } from './config-fields.ts'
+import { historyStrategyOptions } from './config-fields.ts'
+import { t } from './locales.ts'
 import css from './ask-panel.module.css'
 
 /** Join truthy class names (no clsx dependency in this package). */
@@ -74,10 +75,11 @@ export interface StrategySelectProps {
  */
 export function StrategySelect({ value, onChange, disabled = false }: StrategySelectProps) {
   const [open, setOpen] = useState(false)
-  const current = HISTORY_STRATEGY_OPTIONS.find(option => option.value === value)
-    ?? HISTORY_STRATEGY_OPTIONS[1]!
+  // Resolved per render: the labels follow the active DSH language.
+  const options = historyStrategyOptions()
+  const current = options.find(option => option.value === value) ?? options[1]!
 
-  const items: MenuEntry[] = HISTORY_STRATEGY_OPTIONS.map(option => ({
+  const items: MenuEntry[] = options.map(option => ({
     id: option.value,
     label: option.label,
     ...{ icon: strategyGlyph(option.value as SidebarqaHistoryStrategy) },
@@ -99,7 +101,7 @@ export function StrategySelect({ value, onChange, disabled = false }: StrategySe
         <button
           type="button"
           className={css.chip}
-          aria-label={`上下文策略：${current.label}`}
+          aria-label={t('strategyAria', { label: current.label })}
           title={current.label}
           disabled={disabled}
           onClick={() => { setOpen(!open) }}

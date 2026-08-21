@@ -4,6 +4,8 @@
  * button never collapses the selection before it is captured.
  */
 import { useSyncExternalStore } from 'react'
+import { t } from './locales.ts'
+import { useLocaleRevision } from './use-locale.ts'
 import type { SelectionController } from './selection.ts'
 import { roleOfKind } from './selection.ts'
 import type { PendingQuote } from './store.ts'
@@ -15,6 +17,8 @@ interface SelectionPopoverProps {
 }
 
 export function SelectionPopover({ controller, onAsk }: SelectionPopoverProps) {
+  // Follow the DSH language (this root lives outside the sidebar tree).
+  useLocaleRevision()
   const state = useSyncExternalStore(
     (cb: () => void) => controller.subscribe(cb),
     () => controller.getSnapshot(),
@@ -49,7 +53,7 @@ export function SelectionPopover({ controller, onAsk }: SelectionPopoverProps) {
           ask()
         }}
       >
-        提问
+        {t('askPopoverButton')}
       </button>
     </div>
   )

@@ -17,6 +17,8 @@ import type {
   SidebarqaModelProviderGroup,
   SidebarqaModelSelection,
 } from '../context-types.ts'
+import { t } from './locales.ts'
+import { useLocaleRevision } from './use-locale.ts'
 import { effectiveEffortOf, isNoopSelection, modelChoiceId, modelChoicesOf, modelSelectionOf } from './model-menu.ts'
 import type { ModelSeatMode } from './model-seat.ts'
 import css from './ask-panel.module.css'
@@ -85,6 +87,9 @@ export function ModelSelect({
   disabled = false,
   onChange,
 }: ModelSelectProps) {
+  // The seat renders inside the panel root, but its own useMemo caches copy —
+  // the revision keys that memo so a language switch rebuilds the labels.
+  const localeRevision = useLocaleRevision()
   const [dir, setDir] = useState<DirState>(IDLE)
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
@@ -108,20 +113,20 @@ export function ModelSelect({
   const effortLabel = reasoning === undefined
     ? undefined
     : effectiveEffort === undefined
-      ? '默认'
+      ? t('commonDefault')
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
   const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
     ? []
     : [
       ...reasoning.defaultEffort === undefined
-        ? [{ key: 'provider-default', effort: undefined as string | undefined, label: '跟随提供方默认' }]
+        ? [{ key: 'provider-default', effort: undefined as string | undefined, label: t('modelProviderDefault') }]
         : [],
       ...reasoning.efforts.map((effort) => ({
         key: `effort:${effort.id}`,
         effort: effort.id,
         label: effort.name,
       })),
-    ], [reasoning])
+    ], [reasoning, localeRevision])
   const busy = dir.status === 'selecting'
 
   const load = (): void => {
@@ -258,7 +263,7 @@ export function ModelSelect({
   // Fall back to the raw model id while the directory loads, after a failed
   // load, or for a drafted model the catalog does not list — a bare 「模型」
   // would hide which model the ask is actually going to use.
-  const modelLabel = currentChoice?.name ?? selection?.model ?? '模型'
+  const modelLabel = currentChoice?.name ?? selection?.model ?? t('modelFallbackLabel')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
   const readonly = mode === 'readonly'
   itemRefs.current = []
@@ -278,7 +283,7 @@ export function ModelSelect({
         ref={triggerRef}
         type="button"
         className={cx(css.chip, readonly && css.chipReadonly)}
-        aria-label={`模型：${triggerLabel}`}
+        aria-label={t('modelTrigger', { label: triggerLabel })}
         aria-haspopup={readonly ? undefined : 'menu'}
         aria-expanded={readonly ? undefined : open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -295,17 +300,17 @@ export function ModelSelect({
       </button>
 
       {open && (
-        <div id={`${id}-menu`} className={css.modelMenu} role="menu" aria-label="模型选择" aria-busy={busy || dir.status === 'loading'}>
+        <div id={`${id}-menu`} className={css.modelMenu} role="menu" aria-label={t('modelMenuLabel')} aria-busy={busy || dir.status === 'loading'}>
           {pane === 'root' && (
             <>
               <button ref={itemRef()} type="button" role="menuitem" className={css.modelCell} onClick={() => { setPane('models') }}>
-                <span className={css.modelCellLabel}>模型</span>
+                <span className={css.modelCellLabel}>{t('modelCellModel')}</span>
                 <span className={css.modelCellValue}>{modelLabel}</span>
                 <IconChevronRightOutline14 className={css.modelCellChevron} />
               </button>
               {reasoning !== undefined && (
                 <button ref={itemRef()} type="button" role="menuitem" className={css.modelCell} onClick={() => { setPane('effort') }}>
-                  <span className={css.modelCellLabel}>推理强度</span>
+                  <span className={css.modelCellLabel}>{t('modelCellEffort')}</span>
                   <span className={css.modelCellValue}>{effortLabel}</span>
                   <IconChevronRightOutline14 className={css.modelCellChevron} />
                 </button>
@@ -315,19 +320,19 @@ export function ModelSelect({
 
           {pane === 'models' && (
             <>
-              {dir.status === 'loading' && <div className={css.modelStatus}>加载中…</div>}
+              {dir.status === 'loading' && <div className={css.modelStatus}>{t('commonLoading')}</div>}
               {dir.error !== null && (
                 <div className={css.modelError}>
                   <IconWarningOutline16 />
-                  <span>{dir.error}</span>
-                  <button type="button" className={css.modelRetry} onClick={load}>重试</button>
+                  <span>{t('errModelFailed', { detail: dir.error })}</span>
+                  <button type="button" className={css.modelRetry} onClick={load}>{t('commonRetry')}</button>
                 </div>
               )}
               {dir.failures.map(failure => (
                 <div className={css.modelWarn} key={failure.id}>
                   <IconWarningOutline16 />
-                  <span>{`${failure.name}：${failure.message ?? '加载失败'}`}</span>
-                  <button type="button" className={css.modelRetry} onClick={load}>重试</button>
+                  <span>{t('modelFailureDetail', { name: failure.name, message: failure.message ?? t('modelLoadFailed') })}</span>
+                  <button type="button" className={css.modelRetry} onClick={load}>{t('commonRetry')}</button>
                 </div>
               ))}
               <div className={css.modelGroups}>
@@ -373,7 +378,7 @@ export function ModelSelect({
                 })}
               </div>
               {dir.status === 'ready' && choices.length === 0 && (
-                <div className={css.modelStatus}>未加载到可用模型</div>
+                <div className={css.modelStatus}>{t('modelEmpty')}</div>
               )}
             </>
           )}
@@ -381,7 +386,7 @@ export function ModelSelect({
           {pane === 'effort' && (
             <>
               {effortChoices.length === 0
-                ? <div className={css.modelStatus}>当前模型没有可选的推理强度</div>
+                ? <div className={css.modelStatus}>{t('modelNoEfforts')}</div>
                 : effortChoices.map(level => (
                   <button
                     ref={itemRef()}

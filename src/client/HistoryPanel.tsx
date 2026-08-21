@@ -20,6 +20,8 @@ import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-pan
 import { onTabActivated } from './tab-activation.ts'
 import { filterHistoryToWorkspace, rootsOf, sessionStatus, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
 import { timeLabel } from './history-time.ts'
+import { t } from './locales.ts'
+import { useLocaleRevision } from './use-locale.ts'
 import css from './history-panel.module.css'
 
 interface HistoryPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
@@ -31,11 +33,24 @@ interface HistoryPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
 /** How often the relative-time labels refresh while the tab is visible. */
 const NOW_TICK_MS = 60_000
 
-export function HistoryPanel({ ctx, store, scope, visible, bsStore }: HistoryPanelProps) {
+export function HistoryPanel({ ctx, store, scope, visible, bsStore, tab }: HistoryPanelProps) {
+  // Follow the DSH language: t() reads at call time, so this single root
+  // re-render re-localizes the whole tree (keep it free of React.memo).
+  const localeRevision = useLocaleRevision()
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
+  const tabId = tab.id
+
+  // An OPEN tab's title is a plain string persisted in better-sidebar's
+  // per-session state, so the registerTab title thunk (live in the + menu)
+  // never re-runs for it. Re-push it whenever the language changes; every
+  // other session's tab heals the moment the user visits it. updateTab
+  // short-circuits an unchanged title, so the mount-time call is free.
+  useEffect(() => {
+    ctx.betterSidebar.updateTab(tabId, { title: t('histTabTitle') })
+  }, [ctx, tabId, localeRevision])
 
   // Self-healing panel expansion (issue #6): the 追问记录 tab is also opened
   // by a type-only openTab (+ menu / 跳转), which never auto-expands a
@@ -91,18 +106,16 @@ export function HistoryPanel({ ctx, store, scope, visible, bsStore }: HistoryPan
     return (
       <div className={css.root}>
         <div className={css.empty}>
-          {currentWorkspace === undefined
-            ? '还没有追问记录。在对话中划选文本并点击「提问」即可生成。'
-            : '当前工作区暂无追问记录。在对话中划选文本并点击「提问」即可生成。'}
+          {currentWorkspace === undefined ? t('histEmptyAll') : t('histEmptyWorkspace')}
         </div>
       </div>
     )
   }
 
   return (
-    <div className={css.root} role="tree" aria-label="追问记录">
+    <div className={css.root} role="tree" aria-label={t('histTabTitle')}>
       {currentWorkspace !== undefined && (
-        <div className={css.workspaceLabel}>当前工作区：{currentWorkspace.title || currentWorkspace.workspaceId}</div>
+        <div className={css.workspaceLabel}>{t('histWorkspace', { name: currentWorkspace.title || currentWorkspace.workspaceId })}</div>
       )}
       {roots.map((rootId) => (
         <TreeNode
@@ -170,7 +183,7 @@ function TreeNode(props: {
           </span>
           {stale && (
             <span className={css.staleBadge}>
-              {status === 'archived' ? '已归档' : '已删除'}
+              {status === 'archived' ? t('histArchived') : t('histDeleted')}
             </span>
           )}
         </button>
@@ -179,16 +192,16 @@ function TreeNode(props: {
           <button
             type="button"
             className={css.remove}
-            title="从追问记录移除（不影响 DSH 侧会话）"
+            title={t('histRemoveTitle')}
             onClick={() => { store.removeSession(id) }}
           >
-            移除
+            {t('commonRemove')}
           </button>
         ) : hasChildren ? (
           <button
             type="button"
             className={css.collapse}
-            aria-label={collapsed ? '展开追问' : '折叠追问'}
+            aria-label={collapsed ? t('histExpand') : t('histCollapse')}
             aria-expanded={!collapsed}
             onClick={() => { store.toggleCollapsed(id) }}
           >

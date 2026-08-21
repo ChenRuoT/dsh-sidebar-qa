@@ -177,3 +177,22 @@ describe('assembleText', () => {
     expect(await assembleText(chunks)).toEqual({ text: '', failed: true })
   })
 })
+
+describe('locale forwarding', () => {
+  const segments = [
+    { role: 'user' as const, text: 'q1' },
+    { role: 'assistant' as const, text: 'a1' },
+  ]
+
+  it('buildTrimContext forwards the locale to the role prefixes', () => {
+    // A wrapper that took the parameter but dropped it would emit Chinese
+    // prefixes under an English prompt — invisible to every other assertion.
+    expect(buildTrimContext(segments, 2, 1000, 'en')).toBe('User: q1\n\nAssistant: a1')
+    expect(buildTrimContext(segments, 2, 1000)).toBe('用户：q1\n\n助手：a1')
+  })
+
+  it('formatBackground forwards the locale (newest-first is unchanged)', () => {
+    expect(formatBackground(segments, 2, 1000, 'en')).toBe('Assistant: a1\n\nUser: q1')
+    expect(formatBackground(segments, 2, 1000)).toBe('助手：a1\n\n用户：q1')
+  })
+})

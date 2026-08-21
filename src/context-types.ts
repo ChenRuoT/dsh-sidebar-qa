@@ -439,6 +439,26 @@ export interface SidebarqaWorkspacesService {
   }
 }
 
+/**
+ * The client locale service face (mirror of @deepseek-ai/dsh-client-locale's
+ * LocaleRuntime — only the slices this plugin touches). Following it makes the
+ * plugin's copy track the Host-backed language preference (`locale.preference`
+ * in settings.yaml) rather than the raw browser language, exactly like every
+ * first-party DSH surface and like dsh-better-sidebar's own panel chrome.
+ *
+ * `getSnapshot()` is narrowed to `{ active }` on purpose: the real runtime also
+ * carries `locales` / `revision`, but a narrower mirror is less drift surface,
+ * and `active` is the only stable primitive the uSES subscription may return.
+ */
+export interface SidebarqaLocaleService {
+  /** Current immutable locale snapshot (`active` is 'zh' | 'en' today). */
+  getSnapshot(): { active: string }
+  /** Subscribe to locale switches; returns the disposer. */
+  subscribe(fn: () => void): () => void
+  /** Register one locale's dictionary for a namespace; returns the disposer. */
+  register(ns: string, locale: string, dict: Record<string, string>): () => void
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Context augmentation (dual cordis scope)
 // ────────────────────────────────────────────────────────────────────────────
@@ -459,6 +479,15 @@ declare module 'cordis' {
      * host side. The plugin requires it (hard peer dependency).
      */
     betterSidebar: SidebarqaBetterSidebarService
+    /**
+     * The DSH client locale service (`@deepseek-ai/dsh-client-locale`): the
+     * plugin's copy follows its active language and its dictionaries register
+     * under the `sidebarQa` namespace. Client side only, and OPTIONAL — the
+     * client half soft-injects it (`ctx.inject(['locale'], …)`) so a deployment
+     * without the locale plugin still runs, falling back to the browser
+     * language. See `src/client/locales.ts`.
+     */
+    locale: SidebarqaLocaleService
     /**
      * Subscribe to the session append feed (mirror of the cordis event API):
      * the listener receives every appended session event with the LIVE

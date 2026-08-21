@@ -3,7 +3,7 @@
 <!-- Hero -->
 <div align="center">
   <b style="font-size: 1.15em;">划选即问，侧边栏内嵌问答</b><br /><br />
-  <code>划选提问</code> <code>上下文摘要</code> <code>嵌套追问</code> <code>追问记录</code> <code>零打断</code><br /><br />
+  <code>划选提问</code> <code>上下文摘要</code> <code>嵌套追问</code> <code>追问记录</code> <code>零打断</code> <code>中英双语</code><br /><br />
   <b>DeepSeek Harness（DSH）Web 插件</b>：在对话里<b>划选任意文本 → 点击「提问」→ 右侧面板问答</b>——<br />
   自动创建<b>同工作区的独立 DSH 会话</b>，主对话零打断。实现类 codex 侧边提问 / Claude Code `/btw` 功能。
 </div>
@@ -21,11 +21,12 @@
 - **📝 划选提问**：对话中划选任意文本 → 浮层「提问」→ 右侧面板内嵌问答，全程不跳转大窗口；**侧边栏面板收起时也会自动展开**，「提问」永远有可见反馈
 - **🧠 智能摘要**：快速无思考模型把主对话上下文压缩成小摘要，与划选引文一起注入首条消息
 - **🔀 三种上下文策略**：每次提问可在「全量继承（fork+缓存命中）/ 压缩 / 机械裁切」间切换，面板内选择器 + 配置默认值双入口
-- **🔗 独立会话**：自动创建同工作区独立 DSH 会话（`❓追问·<主题>`），可继续、可归档，主对话零打断
+- **🔗 独立会话**：自动创建同工作区独立 DSH 会话（`❓<主题>`），可继续、可归档，主对话零打断
 - **🪆 嵌套追问**：在追问对话里再划选提问，生成子追问，层层嵌套
 - **🗂️ 追问记录**：按根（主）会话分层树展示；限定当前工作区；节点可折叠、显示最近访问时间；点击跳转后追问记录 tab 保持开启；已归档/已删除的追问**置灰标记状态**，可一键从记录中移除（连同整棵子树清理映射，不影响 DSH 侧会话）
 - **🏷️ 两段式命名**：划选首行占位命名 → 首次回答完成后基于「问题 + 回答」自动提炼 ≤15 字最终标题
 - **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调（设置页齿轮弹窗）
+- **🌏 中英双语**：界面文案与模型侧提示词跟随 DSH 语言设置实时切换（无需刷新）；**回答语言跟随你提问/划选的内容**，不被界面语言绑架
 
 > 🔌 **基于 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 开发的第三方拓展 Tab**，通过 `ctx.betterSidebar.registerTab` 注册；能力对等内置 tab，安装即用。
 
@@ -54,7 +55,7 @@ dsh plugin --profile web add <本仓库路径>
 1. 在任意对话（主对话或追问对话）中划选一段文本，点击浮层「提问」。即使右侧面板处于**收起**状态也会自动展开（对应 [issue #6](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/6)），「追问」tab 直接可见——包括"先手动收起面板、再点提问"的重复场景。
 2. 右侧「追问」面板变成一条**内嵌对话**：引文/问题在侧边栏内流式回答，输入框固定在下方面板底部，**不会跳转到子对话大窗口**。
 3. 回答过程中可在输入框继续追问（Enter 发送、Shift+Enter 换行），所有问答都在侧边栏内完成。面板底部的**输入框复用 DSH 主对话的输入栏外观**（同一套设计 token 的圆角胶囊卡片）：发起新追问时左侧是**上下文策略** chip，右侧的**模型选择**（与主对话同一份 `session.models/selectModel` 数据，切换互通）与 **context 占用环**（复用 `contextPressure` 投影）始终可见——新追问时它们绑定**被追问的父会话**（context 环即父会话占用，可据此判断用全量还是裁切）。**模型座不会写主对话**：新追问 + 压缩/裁切时它是**本地草稿**，默认显示配置里的回答模型（子会话真正会用的那个），你的选择只在追问会话建好后应用；新追问 + 全量继承时**只读置灰**（fork 子会话沿用主对话模型，正是前缀缓存命中的前提，如需换模型请改用压缩/裁切）；继续已有追问时绑定该追问会话并直接生效。最右侧为**上箭头发送键**。
-4. 每个追问仍是同工作区的独立会话（`❓追问·<主题>`），主对话零打断；追问可以**嵌套**（在追问对话里再划选提问会生成新的子追问）。发起新追问时，输入框左侧的**上下文策略** chip 可选择策略（默认取配置 `historyStrategy`）：
+4. 每个追问仍是同工作区的独立会话（`❓<主题>`），主对话零打断；追问可以**嵌套**（在追问对话里再划选提问会生成新的子追问）。发起新追问时，输入框左侧的**上下文策略** chip 可选择策略（默认取配置 `historyStrategy`）：
    - **全量继承**：`sessions.fork` 从主会话最近的已完成 turn 分叉子会话，完整历史随种子继承，首条请求复用主会话消息前缀 → DeepSeek **自动前缀缓存命中**、零压缩损失；子会话沿用主会话模型。主对话正在回答（无已完成 turn）时 fork 自动降级为「压缩」并提示。追问 tab 中，继承的父对话历史显示在**分割条上方**，默认视图锚定在本追问自己的「引用 + 提问」处，**向上滚动分页加载**父对话历史（与主对话「加载更早」体验一致）。
    - **压缩**：快速模型压缩较早窗口 + 近期原文保留（默认，省 token）。
    - **机械裁切**：最后 `trimWindowMessages` 条消息原文直取，零 LLM 成本、确定性输出。
@@ -87,15 +88,16 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
 ├── src/summarize.ts        表面文本抽取 + 流组装（纯函数，可测）
 ├── src/title.ts            标题提示词 + 规范化 + Q+A 输入框定（纯函数，可测）
 ├── src/config.ts           设置 schema + 默认值
+├── src/prompt-locale.ts    模型侧 zh/en 提示词词表 + 问题标记注册表（两半共享，纯函数，可测）
 ├── src/context-types.ts    结构化 cordis 服务面 + Context 增补
 └── src/client/             浏览器：选区捕获、浮层、问答面板、会话编排、追问记录
-    ├── index.tsx           apply：注册 2 个 better-sidebar tab + 浮层
+    ├── index.tsx           apply：注册 2 个 better-sidebar tab + 浮层 + locale 词典
     ├── selection.ts        选区捕获与校验（单消息/非流式/≤2000 字符）
     ├── SelectionPopover.tsx 划选浮层「提问」按钮
     ├── AskPanel.tsx         追问 tab（内嵌对话：流式 transcript + DSH 风格输入卡片 + 追问切换）
     ├── HistoryPanel.tsx     追问记录 tab（分层树：折叠按钮 + 最近访问时间 + 工作区限定 + 归档/删除置灰与移除）
     ├── history-scope.ts     工作区归属解析 + 树过滤 + 子树最近访问时间 + 会话状态判定（live/archived/gone）与子树移除（纯函数，可测）
-    ├── history-time.ts      相对时间分桶 + 中文标签（纯函数，可测，复用左侧面板样式）
+    ├── history-time.ts      相对时间分桶 + 本地化标签（纯函数，可测，复用左侧面板样式）
     ├── StrategySelect.tsx   上下文策略 chip（PermissionSelect 同款触发器 + Menu）
     ├── ModelSelect.tsx      模型选择（双层菜单三态：提交 / 草稿 / 只读）
     ├── model-menu.ts        模型目录扁平化/选中解析 + 有效强度与去重判定（纯函数，可测）
@@ -104,6 +106,8 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── context-meter.ts     占用百分比/紧凑 token 格式化（纯函数，可测）
     ├── ensure-panel.ts      面板收起自愈：展开判定 + 经 SidebarStore 展开（纯函数，可测）
     ├── tab-activation.ts    onActivate 激活桥：收起后重新激活 tab 时再次自愈（issue #6）
+    ├── locales.ts           界面 zh/en 词表 + 模块级 t()（零依赖，可测）
+    ├── use-locale.ts        useLocaleRevision()：语言切换时重渲染各面板根
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
     ├── ConfigPanel.tsx       功能配置面板（设置齿轮弹窗：编辑 sidebarqa 命名空间，回答/摘要模型渠道与模型下拉）
     ├── config-fields.ts      配置面板行声明 + 数字钳制 + catalog 选项解析（纯函数，可测）
@@ -131,12 +135,12 @@ ctx.betterSidebar.openTab(
 划选文本 ─▶ 浮层[提问] ─▶ 右侧面板(引文 + 底部输入框)
   回车 ─▶ ① host 摘要：sessionQuery.readSurface(被追问会话) → llm 快速无思考模型压缩
           ② client 创建会话 sessions.create(workspaceId)
-          ③ rename → "❓追问·<划选文本首行占位>"
+          ③ rename → "❓<划选文本首行占位>"
           ④ selectModel(默认 deepseek-v4-flash, 思考关闭)
           ⑤ prompt(摘要块 + <quoted_context> + 问题)
         ─▶ 面板轮询 sessions.history 流式渲染 transcript（不跳转大窗口）
         ─▶ 首次 turn/end 后 ⑥ host 标题：Q+A 截断 → llm 快速无思考模型提炼 ≤15 字主题
-          → rename 覆盖为 "❓追问·<最终主题>"（仅一次，失败保留占位）
+          → rename 覆盖为 "❓<最终主题>"（仅一次，失败保留占位）
         ─▶ 底部输入框继续追问；主对话零影响；追问可嵌套
 ```
 
@@ -164,9 +168,18 @@ ctx.betterSidebar.openTab(
 ```bash
 pnpm install
 pnpm build      # tsc 声明 + tsdown（lib/index.js + lib/client.js + lib/client-registry.js）
-pnpm test       # vitest 单测（injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / model-seat / context-meter / config / ensure-panel / tab-activation）
+pnpm test       # vitest 单测（injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / model-seat / context-meter / config / config-fields / ensure-panel / tab-activation / locales / prompt-locale）
 pnpm typecheck
 ```
+
+## 多语言
+
+界面文案与模型侧提示词都跟随 **DSH 的语言设置**（设置 → 通用 → 语言，即 `$DSH_HOME/settings.yaml` 的 `locale.preference`）；缺少 locale 服务时回退浏览器语言，再回退 en。切换语言**即时生效**，无需刷新或重启。
+
+- **界面**：两个 tab 标题（含已打开的 tab）、划选浮层、空态与状态提示、模型选择、context 占用环、功能配置面板——词表在 `src/client/locales.ts`，zh 为键集基准，en 由类型标注锁定。
+- **模型侧**：追问引导语、上下文压缩系统提示、标题系统提示，以及提示词指名引用的结构标记——词表在 `src/prompt-locale.ts`。client 调用 `/sidebarqa/api/context` 与 `/sidebarqa/api/title` 时带 `locale` 字段；**缺省等价于 `zh`**，旧版 client 打到新 host 与 i18n 之前逐字节一致。
+- **回答语言不跟界面走**：提示词要求模型「用与用户提问相同的语言作答，问题语言不明确时跟随划选文本」——中文界面下划选英文论文提问，仍得到英文回答（与 DSH 官方会话命名同款策略）。
+- 追问会话标题为 `❓<主题>`：只用 emoji 标记，不含需要翻译的词，切换语言不会让会话列表出现混合语言前缀。
 
 ## License
 

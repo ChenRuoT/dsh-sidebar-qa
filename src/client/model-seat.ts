@@ -27,6 +27,7 @@
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import type { SidebarqaModelSelection } from '../context-types.ts'
 import type { SidebarqaConfigView } from './api.ts'
+import type { CopyKey } from './locales.ts'
 
 /** How the seat applies a pick. */
 export type ModelSeatMode = 'commit' | 'draft' | 'readonly'
@@ -38,8 +39,10 @@ export interface ModelSeatBinding {
   mode: ModelSeatMode
   /** What the seat displays; null = fall back to the read session's current. */
   value: SidebarqaModelSelection | null
-  /** Hover hint, present only for the read-only seat. */
-  hint?: string
+  /** Copy KEY of the hover hint, present only for the read-only seat.
+   *  A key, not the resolved text: the binding is memoized in AskPanel, and
+   *  caching already-translated copy would freeze it at the memo's locale. */
+  hintKey?: CopyKey
 }
 
 /** The answer-model half of the resolved config (all the seat needs). */
@@ -61,9 +64,6 @@ export interface ModelSeatInput {
   /** Resolved config; null while it is still loading or after a failed load. */
   config: ModelSeatConfig | null
 }
-
-/** The read-only seat's explainer under the `inherit` strategy. */
-export const INHERIT_SEAT_HINT = '全量继承沿用主对话模型（保前缀缓存），如需换模型请改用压缩/裁切'
 
 /**
  * The configured answer model as a selection, or null when it cannot be used.
@@ -99,7 +99,7 @@ export function resolveModelSeat(input: ModelSeatInput): ModelSeatBinding {
       sessionId: input.parentSessionId,
       mode: 'readonly',
       value: null,
-      hint: INHERIT_SEAT_HINT,
+      hintKey: 'modelInheritSeatHint',
     }
   }
 

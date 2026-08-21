@@ -16,17 +16,20 @@ import type {
   SidebarqaContextPressure,
 } from '../context-types.ts'
 import { contextOccupancy, formatTokens } from './context-meter.ts'
+import { t } from './locales.ts'
 import css from './ask-panel.module.css'
 
 /** Ring geometry: 14px viewBox, 2px stroke. */
 const RADIUS = 5.5
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
-/** Panel legend rows, in bar-segment order (each color class pairs swatch + segment). */
+/** Panel legend rows, in bar-segment order (each color class pairs swatch +
+ *  segment). The rows carry the copy KEY, not the copy: a module-level table
+ *  holding resolved text would never follow a language switch. */
 const ROWS = [
-  { key: 'systemTokens', label: '系统提示词', color: css.meterColorSystem },
-  { key: 'toolsTokens', label: '工具', color: css.meterColorTools },
-  { key: 'messageTokens', label: '对话消息', color: css.meterColorMessages },
+  { key: 'systemTokens', labelKey: 'meterSystem', color: css.meterColorSystem },
+  { key: 'toolsTokens', labelKey: 'meterTools', color: css.meterColorTools },
+  { key: 'messageTokens', labelKey: 'meterMessages', color: css.meterColorMessages },
 ] as const
 
 /**
@@ -86,11 +89,11 @@ export function ContextMeter({ ctx, sessionId }: ContextMeterProps) {
 
   return (
     <span ref={rootRef} className={css.meterRoot}>
-      <Tooltip label={`上下文已用 ${reading}`} side="top" delayMs={200} disabled={open}>
+      <Tooltip label={t('meterUsed', { reading })} side="top" delayMs={200} disabled={open}>
         <button
           type="button"
           className={css.meterTrigger}
-          aria-label={`上下文已用 ${reading}`}
+          aria-label={t('meterUsed', { reading })}
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => { setOpen(!open) }}
@@ -109,9 +112,9 @@ export function ContextMeter({ ctx, sessionId }: ContextMeterProps) {
         </button>
       </Tooltip>
       {open && (
-        <div className={css.meterPanel} role="dialog" aria-label="上下文占用">
+        <div className={css.meterPanel} role="dialog" aria-label={t('meterPanelLabel')}>
           <div className={css.meterHeader}>
-            <span className={css.meterHeadline}>上下文已用</span>
+            <span className={css.meterHeadline}>{t('meterHeadline')}</span>
             <span className={css.meterPercent}>{reading}</span>
             <span className={css.meterFigures}>
               {`~${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`}
@@ -132,7 +135,7 @@ export function ContextMeter({ ctx, sessionId }: ContextMeterProps) {
                 <div key={row.key} className={css.meterRow}>
                   <dt>
                     <span className={`${css.meterSwatch} ${row.color}`} aria-hidden />
-                    {row.label}
+                    {t(row.labelKey)}
                   </dt>
                   <dd>{`~${formatTokens(breakdown[row.key])}`}</dd>
                 </div>

@@ -16,21 +16,24 @@ import { sidebarqaApi, type SidebarqaConfigView } from './api.ts'
 import type { SidebarqaCatalog } from '../context-types.ts'
 import {
   CATALOG_INHERIT_VALUE,
-  CONFIG_FIELDS,
   coerceNumberField,
+  configFields,
   modelOptionsOf,
   providerOptionsOf,
   type ConfigField,
   type ConfigFieldOption,
 } from './config-fields.ts'
+import { t } from './locales.ts'
+import { useLocaleRevision } from './use-locale.ts'
 import css from './config-panel.module.css'
 
 /** Map one wire failure to an inline message (the conflict gets friendly copy). */
 function messageOf(error: unknown): string {
   if (error instanceof Error && 'code' in error && (error as { code?: unknown }).code === 'settings-conflict') {
-    return '保存失败：配置已在其他窗口被修改，请重试'
+    return t('errSaveConflict')
   }
-  return `保存失败：${error instanceof Error ? error.message : String(error)}`
+  // Localized frame + the raw (English) host detail.
+  return t('errSaveFailed', { detail: error instanceof Error ? error.message : String(error) })
 }
 
 /** One config row: a controlled input with a local draft committed on blur/Enter. */
@@ -88,6 +91,8 @@ function FieldRow(props: {
  * re-reads the live config on every open and commits each row on blur/Enter.
  */
 export function ConfigPanel(): ReactElement {
+  // Follow the DSH language (this root is rendered by the settings shell).
+  useLocaleRevision()
   const [config, setConfig] = useState<SidebarqaConfigView | null>(null)
   const [catalog, setCatalog] = useState<SidebarqaCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -189,7 +194,7 @@ export function ConfigPanel(): ReactElement {
   }
 
   if (config === null) {
-    return <div className={css.loading}>加载配置…</div>
+    return <div className={css.loading}>{t('cfgLoading')}</div>
   }
   const currentConfig = config
 
@@ -222,7 +227,7 @@ export function ConfigPanel(): ReactElement {
   return (
     <div className={css.root}>
       <div className={css.rows}>
-        {CONFIG_FIELDS.map((field) => (
+        {configFields().map((field) => (
           <FieldRow
             // Keyed by the committed value: a failed commit reverts config, the
             // key changes, and the row remounts with the stored value (typing

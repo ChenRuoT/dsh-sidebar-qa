@@ -1,3 +1,4 @@
+import { QUESTION_LABELS } from '../src/prompt-locale.ts'
 import { describe, expect, it } from 'vitest'
 import {
   boundText,
@@ -5,6 +6,7 @@ import {
   buildQuotedContext,
   escapeXml,
   FOLLOWUP_INTRO,
+  followUpIntro,
   followUpTitle,
   parseUserMessage,
   sanitizeText,
@@ -71,17 +73,29 @@ describe('topicFromQuote', () => {
   it('uses the first non-blank line', () => {
     expect(topicFromQuote('  你好世界\n更多')).toBe('你好世界')
   })
-  it('bounds long topics', () => {
-    expect(topicFromQuote('abcdefghijklmnop')).toBe('abcdefghijkl…')
+  it('bounds long CJK topics at the CJK budget', () => {
+    expect(topicFromQuote('一二三四五六七八九十十一十二十三')).toBe('一二三四五六七八九十十一…')
   })
-  it('falls back to 追问 on blank', () => {
+  it('gives non-CJK text a wider budget (a Latin script says less per char)', () => {
+    // 16 chars used to be cut at 12; the budget follows the TEXT's script.
+    expect(topicFromQuote('abcdefghijklmnop')).toBe('abcdefghijklmnop')
+    expect(topicFromQuote('a'.repeat(30))).toBe(`${'a'.repeat(24)}…`)
+  })
+  it('falls back to 追问 on blank (the default keeps pre-i18n callers stable)', () => {
     expect(topicFromQuote('   \n  ')).toBe('追问')
+  })
+  it('takes the fallback subject from the caller (the locale supplies it)', () => {
+    expect(topicFromQuote('   \n  ', 'Follow-up')).toBe('Follow-up')
   })
 })
 
 describe('followUpTitle', () => {
-  it('prefixes the subject', () => {
-    expect(followUpTitle('主题')).toBe('❓追问·主题')
+  it('prefixes the subject with the emoji alone', () => {
+    // The emoji marks a follow-up session on its own, so the title carries no
+    // translatable word — a language switch can never leave the session list
+    // with mixed-language prefixes.
+    expect(followUpTitle('主题')).toBe('❓主题')
+    expect(followUpTitle('Prefix cache')).toBe('❓Prefix cache')
   })
 })
 
@@ -114,5 +128,46 @@ describe('parseUserMessage', () => {
 
   it('returns the whole text as the question when there is no quote', () => {
     expect(parseUserMessage('直接问一句')).toEqual({ quote: null, question: '直接问一句' })
+  })
+})
+
+describe('the en bundle', () => {
+  it('builds the whole first message from the en prompts', () => {
+    const out = buildFirstMessage('summary', { text: 'quoted' }, 'my question', 'agent reply', 'en')
+    expect(out.startsWith(followUpIntro('en'))).toBe(true)
+    expect(out).toContain('[Main conversation context]')
+    expect(out).toContain('Question: my question')
+    expect(out).not.toContain('【主对话上下文】')
+    expect(out).not.toContain('问题：')
+  })
+
+  it('round-trips through the parser', () => {
+    const out = buildFirstMessage('summary', { text: 'quoted text' }, 'my question', 'agent reply', 'en')
+    expect(parseUserMessage(out)).toEqual({ quote: 'quoted text', question: 'my question' })
+  })
+
+  it('keeps zh output byte-identical when no locale is passed', () => {
+    const withDefault = buildFirstMessage('摘要', { text: '引文' }, '问题', 'Agent 回复')
+    const explicit = buildFirstMessage('摘要', { text: '引文' }, '问题', 'Agent 回复', 'zh')
+    expect(withDefault).toBe(explicit)
+  })
+})
+
+describe('the persisted question marker', () => {
+  it('still parses a message written before the en marker existed', () => {
+    // These messages live in the DSH session log forever: a follow-up asked
+    // under zh must keep rendering correctly after the user switches to en.
+    const legacy = buildFirstMessage(null, { text: '引文' }, '旧问题', 'Agent 回复', 'zh')
+    expect(parseUserMessage(legacy).question).toBe('旧问题')
+  })
+
+  it('parses every marker the plugin has ever emitted', () => {
+    for (const label of QUESTION_LABELS) {
+      expect(parseUserMessage(`${label}the question`).question).toBe('the question')
+    }
+  })
+
+  it('leaves an unlabeled message untouched', () => {
+    expect(parseUserMessage('just a question').question).toBe('just a question')
   })
 })

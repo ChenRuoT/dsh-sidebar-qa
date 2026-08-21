@@ -11,6 +11,11 @@
  * Any failure degrades to `{ degraded: true }` — the client then skips the
  * context block and still answers.
  *
+ * Both the context and the title method accept an optional `locale` field
+ * ('zh' | 'en'): the host has no locale signal of its own, so the client sends
+ * the active DSH language and the host picks the matching prompt bundle. An
+ * absent field means 'zh' — a pre-i18n client keeps today's exact behavior.
+ *
  * The route passes the same browser-trust fence as the /api gateway
  * (Host-header loopback or the connection row's `trustedHosts`).
  */
@@ -26,7 +31,7 @@ import {
 import {
   assembleText,
   BACKGROUND_SEGMENT_MAX,
-  BACKGROUND_SYSTEM,
+  backgroundSystem,
   buildTrimContext,
   composeSummary,
   extractSegments,
@@ -41,8 +46,9 @@ import {
   boundTitleInput,
   normalizeTitle,
   TITLE_MAX_BYTES,
-  TITLE_SYSTEM,
+  titleSystem,
 } from './title.ts'
+import { promptLocaleOf } from './prompt-locale.ts'
 import type {
   SidebarqaCatalog,
   SidebarqaLlmMessage,
@@ -54,9 +60,12 @@ import type {
 export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
 export type { SidebarqaConfig, SidebarqaHistoryStrategy, SidebarqaReasoningEffort } from './config.ts'
 export type { Context } from './context-types.ts'
+export { PROMPTS, promptLocaleOf, promptsOf, QUESTION_LABELS } from './prompt-locale.ts'
+export type { PromptBundle, PromptLocale } from './prompt-locale.ts'
 export {
   assembleText,
   BACKGROUND_SYSTEM,
+  backgroundSystem,
   buildTrimContext,
   composeSummary,
   extractSegments,
@@ -65,7 +74,7 @@ export {
   splitRecent,
   textOfEvent,
 } from './summarize.ts'
-export { TITLE_SYSTEM, boundTitleInput, buildTitleInput, normalizeTitle, truncateTitleUtf8 } from './title.ts'
+export { TITLE_SYSTEM, boundTitleInput, buildTitleInput, normalizeTitle, titleSystem, truncateTitleUtf8 } from './title.ts'
 
 /** Plugin identity for cordis.yml rows. */
 export const name = 'dsh-sidebar-qa'
@@ -186,7 +195,18 @@ function buildApi(
     },
     context: async (payload): Promise<SidebarqaContextResult> => {
       const mainSessionId = requireString(payload, 'mainSessionId')
-      const record = payload as { strategy?: unknown; provider?: unknown; model?: unknown; budgetTokens?: unknown }
+      const record = payload as {
+        strategy?: unknown
+        provider?: unknown
+        model?: unknown
+        budgetTokens?: unknown
+        locale?: unknown
+      }
+      // The language of the PROMPTS and their structural markers. Absent (a
+      // client that predates i18n) resolves to 'zh' — byte-identical to the
+      // pre-i18n behavior; the answer's own language is decided by the intro
+      // the client injects, from the user's question.
+      const locale = promptLocaleOf(record.locale)
       const config = getConfig()
       const strategy: SidebarqaHistoryStrategy =
         record.strategy === 'inherit' || record.strategy === 'trim' ? record.strategy : 'compressed'
@@ -213,7 +233,7 @@ function buildApi(
 
       // `trim`: the last N segments verbatim — deterministic and free, no model.
       if (strategy === 'trim') {
-        const text = buildTrimContext(extractSegments(surface.events), config.trimWindowMessages)
+        const text = buildTrimContext(extractSegments(surface.events), config.trimWindowMessages, undefined, locale)
         if (text === '') return { degraded: true, text: null, sourceSeq, reason: 'empty-surface' }
         return { degraded: false, text, sourceSeq }
       }
@@ -221,18 +241,22 @@ function buildApi(
       // `compressed`: asymmetric window — the RECENT messages pass through
       // near-verbatim (they anchor the follow-up to the latest state); only the
       // EARLIER background goes to the fast model for compression.
-      const cacheKey = `${strategy}:${mainSessionId}`
+      // The locale is part of the key: without it a zh→en switch would keep
+      // serving the cached Chinese summary until the parent produces a new
+      // message. (This Map has no eviction policy; the axis at most doubles it,
+      // and each entry is a single summary string.)
+      const cacheKey = `${strategy}:${locale}:${mainSessionId}`
       const cached = cache.get(cacheKey)
       if (cached !== undefined && cached.sourceSeq === sourceSeq) {
         return { degraded: false, text: cached.summary, sourceSeq }
       }
 
       const { earlier, recent } = splitRecent(extractSegments(surface.events), config.recentWindowMessages)
-      const recentText = formatSegments(recent, RECENT_SEGMENT_MAX)
+      const recentText = formatSegments(recent, RECENT_SEGMENT_MAX, locale)
       // Hand the background to the model NEWEST-FIRST so the current progress
       // (the tail of `earlier`, just before the verbatim recent band) sits at
       // the strongest attention position instead of the opening topic.
-      const earlierText = formatBackground(earlier, config.backgroundWindowMessages, BACKGROUND_SEGMENT_MAX)
+      const earlierText = formatBackground(earlier, config.backgroundWindowMessages, BACKGROUND_SEGMENT_MAX, locale)
 
       // Compress the background only when there is earlier content AND a provider.
       // Any failure here leaves the background empty — the verbatim recent window
@@ -244,7 +268,7 @@ function buildApi(
             provider,
             model,
             messages: [userMessage(earlierText)],
-            system: BACKGROUND_SYSTEM,
+            system: backgroundSystem(locale),
             maxTokens: budgetTokens,
             reasoningEffort: config.summarizeReasoningEffort,
             signal: AbortSignal.timeout(SUMMARIZE_TIMEOUT_MS),
@@ -256,7 +280,7 @@ function buildApi(
         }
       }
 
-      const text = composeSummary(background, recentText)
+      const text = composeSummary(background, recentText, locale)
       if (text.trim() === '') {
         return { degraded: true, text: null, sourceSeq, reason: 'empty-surface' }
       }
@@ -265,7 +289,8 @@ function buildApi(
     },
     title: async (payload): Promise<TitleResult> => {
       const text = requireString(payload, 'text')
-      const record = payload as { provider?: unknown; model?: unknown; budgetTokens?: unknown }
+      const record = payload as { provider?: unknown; model?: unknown; budgetTokens?: unknown; locale?: unknown }
+      const locale = promptLocaleOf(record.locale)
       const config = getConfig()
       // The title reuses the summarize route (fixed flash / thinking off); the
       // client resolves the inherited provider, and the model defaults here.
@@ -286,7 +311,7 @@ function buildApi(
           provider,
           model,
           messages: [userMessage(boundTitleInput(text))],
-          system: TITLE_SYSTEM,
+          system: titleSystem(locale),
           maxTokens: budgetTokens,
           reasoningEffort: config.summarizeReasoningEffort,
           signal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
