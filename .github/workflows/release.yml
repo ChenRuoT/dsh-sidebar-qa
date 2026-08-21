@@ -53,8 +53,12 @@ jobs:
       - name: Pack tarball for the GitHub Release
         run: pnpm pack --pack-destination ./dist
 
+      - name: Extract the matching CHANGELOG.md section as the release body
+        run: node .github/scripts/extract-release-body.mjs "$(node -p "require('./package.json').version")" dist/release-body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.tgz
+          body_path: dist/release-body.md
           generate_release_notes: true
