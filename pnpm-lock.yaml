@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       dsh-better-sidebar:
-        specifier: ^0.16.0
+        specifier: '>=0.16.0'
         version: 0.16.1(1973705670cfddf81691f2965b36f11d)
       schemastery:
         specifier: ^3.18.0

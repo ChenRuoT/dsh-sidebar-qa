@@ -2,6 +2,17 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.2] - 2026-08-28
+
+### Changed
+
+- **`package.json` 新增 `engines.dsh: ">=0.1.2-alpha.1"`（[issue #14](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/14)）**：0.4.1 起浏览器侧 RPC 走 DSH 的 Remote 服务（`ctx.remote.session`），该服务首次落地于上游 `dsh-v0.1.2-alpha.1`。此前这个前置条件只写在 release notes 里，机器读不到；现在成为清单里的显式声明，供市场 / CLI / CI 在安装前校验（配套提案见 [dsh-market#404](https://github.com/dsh-market/dsh-market/issues/404)）。
+  > 注意这是**声明而非闸门**：npm / pnpm 的 `engines` 只校验 `node`（及包管理器自身），未知键会被忽略；`dsh plugin --profile web add` 又是 pnpm 的薄转发。真正的安装前拦截需要市场 / CLI 侧消费该字段。在此之前，早于 `0.1.2-alpha.1` 的 DSH 上本插件因 `inject` 解析不到 `remote` 而**静默不激活**（无 UI、无报错），请留在 `0.4.0`。
+- **`dsh.plugin.json`（plugin-registry 渠道清单）的 `engines.dsh` 由 `>=0.0.1` 同步为 `>=0.1.2-alpha.1`**：该字段此前是一条陈旧声明（写于插件还没有任何宿主版本要求的时候），按 registry 清单做校验的消费方会读到「任何版本都行」，与 `package.json` 的声明互相矛盾。两份清单现在给出同一个下限。
+- **`dsh-better-sidebar` peer 依赖由 `^0.16.0` 放宽为 `>=0.16.0`**：caret 对 `0.x` 只放行同一 minor（`>=0.16.0 <0.17.0`），而上游迭代快于本插件——better-sidebar 发到 `0.17.0` 时本插件会**平白无故解析失败**，尽管并没有任何已知不兼容。改为只声明下限，若将来某个版本确实破坏兼容再收窄上限。
+
+> 部署提醒：本版仅清单与依赖声明改动（`engines.dsh`、peer 范围），无运行时代码变化；已安装用户无需重启。但早于 DSH `0.1.2-alpha.1` 的宿主上插件会**静默不激活**（与 0.4.1 行为相同），请留在 `dsh-sidebar-qa@0.4.0`。
+
 ## [0.4.1] - 2026-08-28
 
 ### Fixed

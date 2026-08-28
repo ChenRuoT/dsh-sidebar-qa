@@ -32,7 +32,7 @@
 
 ## Prerequisites (required)
 
-`dsh-better-sidebar` **must be installed** (without it the plugin stays **inactive** — no UI, no behavior, no session creation), and it must be **`0.16.x`** (peer dependency `^0.16.0`, matching **DSH `0.1.0-rc.8`**; DSH rc.7 and earlier cannot resolve this plugin's peer dependencies — upgrade DSH first).
+`dsh-better-sidebar` **must be installed** (without it the plugin stays **inactive** — no UI, no behavior, no session creation), and it must be **`0.16.0` or newer** (peer dependency `>=0.16.0` — upstream moves faster than this plugin, so no minor upper bound is pinned; the range will be narrowed only if a future release actually breaks). The DSH host must be **`0.1.2-alpha.1` or newer** (`engines.dsh: >=0.1.2-alpha.1`): this plugin's browser-side RPC uses the Remote service `ctx.remote.session` introduced in that release. On earlier DSH the plugin **stays silently inactive** — stay on `dsh-sidebar-qa@0.4.0` there.
 
 ```bash
 dsh plugin --profile web add dsh-better-sidebar@latest

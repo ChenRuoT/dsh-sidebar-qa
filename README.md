@@ -32,7 +32,7 @@
 
 ## 前置依赖（必装）
 
-`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话），且需 **`0.16.x`**（peer 依赖 `^0.16.0`，对应 **DSH `0.1.0-rc.8`**；rc.7 及更早的 DSH 环境无法解析本插件的 peer 依赖，请先升级 DSH）。
+`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话），且需 **`0.16.0` 及以上**（peer 依赖 `>=0.16.0`——上游迭代快于本插件，不锁 minor 上限；若某个新版出现不兼容再收窄）。宿主 DSH 需 **`0.1.2-alpha.1` 及以上**（`engines.dsh: >=0.1.2-alpha.1`，本插件的浏览器侧 RPC 走该版本引入的 Remote 服务 `ctx.remote.session`；更早的 DSH 上插件**静默不激活**，请留在 `dsh-sidebar-qa@0.4.0`）。
 
 ```bash
 dsh plugin --profile web add dsh-better-sidebar@latest
