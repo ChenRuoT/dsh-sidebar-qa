@@ -2,7 +2,29 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.4.1] - 2026-08-28
+
+### Fixed
+
+- **版本兼容（[issue #12](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/12)）：`dsh-better-sidebar` peer 依赖由 `^0.14.0` 调整为 `^0.16.0`**，正式声明兼容 0.16.x（本次 Remote 迁移正源于该版本线的上游重构）；0.14.x / 0.15.x 不再被 peer 解析。
+- **追问面板整块报错 `dsh-better-sidebar: Cannot read properties of undefined (reading 'sessions')`**：DSH 上游把浏览器侧 RPC 从 `ctx.connection.api` 迁到了**类型化 Remote 服务** `ctx.remote`（`refactor(connection): own RPC transport contracts` 删掉了 `ConnectionHandle.api`；`refactor(client): consume migrated Remote namespaces` 把各命名空间挂成独立 cordis 服务）。本插件的 11 处调用点全部落在那个已消失的对象上，其中 `ModelSelect` 的挂载 effect 是**同步**取值，因此直接被 better-sidebar 的单 tab 错误边界捕获、整块渲染成错误条。现已全量迁移到新接口：
+
+  | 旧 | 新 |
+  |---|---|
+  | `connection.api.sessions.create / fork / rename / selectModel / prompt` | `ctx.remote.session.*`（信封由 `{result:{ok,…}}` 改为扁平 `{ok,…}`；`prompt` 新增必填 `requestId`，由客户端生成 UUID v4） |
+  | `connection.api.sessions.models({sessionId})` | `ctx.remote.session.modelCatalog()`（Host 级目录，无会话地址）＋会话的 `modelSelection` **projection**（当前选择改为**订阅**而非轮询，主对话或 `/model` 改模型会自动同步到座位） |
+  | `connection.api.sessions.history({sessionId})` 每 1.2s 轮询 | `ctx.remote.session.follow()` 实时流（开窗 + 增量帧）＋ `session.page()` 向上翻页。**追问回答现在是真流式**，不再等轮询节拍 |
+
+- **`inject` 增补 `remote` / `remote.session`**，并且两个 tab 组件改为接收**本插件自己的 ctx**（此前用的是 better-sidebar 传下来的 ctx——cordis 只解析各自 plugin 注入过的服务，而 better-sidebar 并未注入 `remote`，沿用会再次拿到 undefined）。
+
+### Added
+
+- 新增纯模块 `src/client/session-wire.ts`（含 `tests/session-wire.spec.ts`，20 例）：Remote 信封拆封、`requestId` 生成、把 wire 上**打包的 assistant delta run**（`chunkrow/text-chunks` 等）还原成逐 seq 的 `assistant/chunk` 事件——因此 `answer.ts` 的折叠逻辑与其全部单测保持零改动——以及重开 follow 时按 seq 合并窗口（避免覆盖已向上翻页的继承历史）。
+- projection 读取抽成共享的 `src/client/use-projection.ts`，上下文占用环与模型座位共用一条路径。
+
+> 部署提醒：**仅 client 半改动**，浏览器硬刷新即可，无需重启 `dsh web`。
+> 前置条件：本版本要求 DSH 已包含上述 Remote 迁移（0.16.x 系 DSH）；在更早的 DSH 上请留在 0.4.0。
+> 已知上游问题：`dsh-better-sidebar` 0.16.1 的 Side Chat 视图仍在调用 `ctx.connection.api.sessions.history`，在同一版 DSH 上打开该 tab 会报同样的错——那是上游代码，不在本插件范围内。
 
 ## [0.4.0] - 2026-08-21
 

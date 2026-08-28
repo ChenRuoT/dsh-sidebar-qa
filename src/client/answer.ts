@@ -1,7 +1,7 @@
 /**
  * Conversation-stream extraction from a side session's history feed. The panel
- * polls `ctx.connection.api.sessions.history` (the same tail-feed pattern
- * better-sidebar's SubagentView uses) and folds the raw events into an ordered
+ * follows `ctx.remote.session` (see `session-wire.ts`, which unpacks the
+ * wire's packed delta runs first) and folds the raw events into an ordered
  * message transcript: user messages, settled assistant messages, plus the
  * in-flight chunk deltas of the running answer. Pure helpers here are
  * unit-testable without a runtime.

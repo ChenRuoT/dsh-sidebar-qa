@@ -1,11 +1,19 @@
 /**
  * The AskPanel's model selector: a compact port of the host composer's
  * `conversation.input.model` seat (ModelSelect), driven directly by the same
- * wire facts — `session.models` for the advisory directory and
- * `session.selectModel` for submission — so a switch here is what the host
- * composer and the /model command show next. Two-level menu (模型 / 推理强度)
- * over the provider-grouped directory; failures surface as an inline strip
- * with Retry.
+ * facts, so a switch here is what the host composer and the /model command
+ * show next. Two-level menu (模型 / 推理强度) over the provider-grouped
+ * directory; failures surface as an inline strip with Retry.
+ *
+ * The directory is assembled from TWO sources, exactly like the host's own
+ * ModelDirectory — the single `session.models` RPC that used to return both
+ * halves no longer exists:
+ * - `session.modelCatalog()` — the Host-generation advisory catalog (provider
+ *   groups, per-provider failures, routable routes, the deployment default).
+ *   It carries no session address: one load serves every seat.
+ * - the session's `modelSelection` projection — the durable current selection,
+ *   subscribed rather than polled, so a switch made in the host composer (or
+ *   by `trySelectModel` on a fresh follow-up) reaches this seat on its own.
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type FocusEvent } from 'react'
 import {
@@ -16,9 +24,12 @@ import type {
   SidebarqaModelCatalogFailure,
   SidebarqaModelProviderGroup,
   SidebarqaModelSelection,
+  SidebarqaSessionModels,
 } from '../context-types.ts'
 import { t } from './locales.ts'
 import { useLocaleRevision } from './use-locale.ts'
+import { useProjectionValue } from './use-projection.ts'
+import { modelSelectionOfProjection, remoteErrorText } from './session-wire.ts'
 import { effectiveEffortOf, isNoopSelection, modelChoiceId, modelChoicesOf, modelSelectionOf } from './model-menu.ts'
 import type { ModelSeatMode } from './model-seat.ts'
 import css from './ask-panel.module.css'
@@ -31,17 +42,36 @@ function cx(...names: Array<string | false | null | undefined>): string {
 /** One pane of the dropdown: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'models' | 'effort'
 
-/** Local mirror of the directory lifecycle (the component owns its load). */
+/** Local mirror of the catalog lifecycle (the component owns its load). */
 interface DirState {
-  current: SidebarqaModelSelection | null
-  routable: boolean | null
+  /**
+   * The selection THIS seat last committed. The `modelSelection` projection
+   * settles a beat after the RPC returns, so the local value wins until it
+   * catches up; it is never the seat's only source of truth.
+   */
+  committed: SidebarqaModelSelection | null
+  /** Provider routes currently able to serve a request. */
+  routableProviders: readonly string[]
+  /** The deployment default: the current selection of a session that never picked one. */
+  fallback: SidebarqaModelSelection | null
+  /** Whether the catalog has landed at least once (routability is unknown before). */
+  loaded: boolean
   groups: readonly SidebarqaModelProviderGroup[]
   failures: readonly SidebarqaModelCatalogFailure[]
   status: 'idle' | 'loading' | 'ready' | 'selecting' | 'error'
   error: string | null
 }
 
-const IDLE: DirState = { current: null, routable: null, groups: [], failures: [], status: 'idle', error: null }
+const IDLE: DirState = {
+  committed: null,
+  routableProviders: [],
+  fallback: null,
+  loaded: false,
+  groups: [],
+  failures: [],
+  status: 'idle',
+  error: null,
+}
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
@@ -74,9 +104,9 @@ export interface ModelSelectProps {
 }
 
 /**
- * The compact model seat for the side panel. `ctx.connection.api.sessions`
- * carries both verbs; the RPC surface mirrors the host's `session.models` /
- * `session.selectModel` exactly, so no plugin-to-plugin import is involved.
+ * The compact model seat for the side panel. `ctx.remote.session` carries both
+ * verbs (`modelCatalog` / `selectModel`) — the very namespace the host's own
+ * model surfaces submit through, so no plugin-to-plugin import is involved.
  */
 export function ModelSelect({
   ctx,
@@ -99,17 +129,35 @@ export function ModelSelect({
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
 
-  const choices = useMemo(() => modelChoicesOf(dir), [dir])
-  // What the seat DISPLAYS. `dir.current` is wire truth (the session's own
+  // The session's durable selection, live: the projection is published for
+  // EVERY listed session, so this also reads for a follow-up that is never
+  // opened on screen.
+  const projected = useProjectionValue(ctx, sessionId, 'modelSelection')
+
+  /** The advisory directory the pure menu helpers consume (catalog + projection). */
+  const dirView: SidebarqaSessionModels = useMemo(() => {
+    const current = dir.committed ?? modelSelectionOfProjection(projected) ?? dir.fallback
+    return {
+      current,
+      routable: !dir.loaded || current === null
+        ? null
+        : dir.routableProviders.includes(current.provider),
+      groups: dir.groups,
+      failures: dir.failures,
+    }
+  }, [dir, projected])
+
+  const choices = useMemo(() => modelChoicesOf(dirView), [dirView])
+  // What the seat DISPLAYS. `dirView.current` is wire truth (the session's own
   // reported model); a draft overrides it so the seat shows what the follow-up
   // will actually use, without anything being written anywhere.
-  const selection: SidebarqaModelSelection | null = mode === 'commit' ? dir.current : (value ?? dir.current)
+  const selection: SidebarqaModelSelection | null = mode === 'commit' ? dirView.current : (value ?? dirView.current)
   const selectedIndex = selection === null
     ? -1
     : choices.findIndex(c => c.provider === selection.provider && c.model === selection.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.reasoning
-  const effectiveEffort = effectiveEffortOf(dir, selection)
+  const effectiveEffort = effectiveEffortOf(dirView, selection)
   const effortLabel = reasoning === undefined
     ? undefined
     : effectiveEffort === undefined
@@ -132,22 +180,28 @@ export function ModelSelect({
   const load = (): void => {
     const gen = ++generation.current
     setDir(prev => ({ ...prev, status: 'loading', error: null }))
-    void ctx.connection.api.sessions.models({ sessionId }).then((response) => {
+    // The catalog is Host-generation state, not session state: no address, and
+    // the current selection rides the projection instead of this response.
+    void ctx.remote.session.modelCatalog().then((result) => {
       if (gen !== generation.current) return
-      // Destructure first: the discriminated narrowing of `result` (a const)
-      // survives into the setDir closures below; a `response.result.ok`
-      // chain-narrowing would not.
-      const { result } = response
       if (!result.ok) {
-        setDir(prev => ({
-          ...prev,
-          status: 'error',
-          error: `${result.error.code}: ${result.error.message}`,
-        }))
+        // Bind the failure before the closure: narrowing on `result` (a const)
+        // survives into the setDir callback, a re-read of `result.ok` would not.
+        const detail = remoteErrorText(result.error)
+        setDir(prev => ({ ...prev, status: 'error', error: detail }))
         return
       }
-      const { current, routable, groups, failures } = result.value
-      setDir({ current, routable, groups, failures, status: 'ready', error: null })
+      const { default: fallback, routableProviders, groups, failures } = result.value
+      setDir(prev => ({
+        ...prev,
+        fallback,
+        routableProviders,
+        loaded: true,
+        groups,
+        failures,
+        status: 'ready',
+        error: null,
+      }))
     }).catch((error: unknown) => {
       if (gen !== generation.current) return
       setDir(prev => ({ ...prev, status: 'error', error: error instanceof Error ? error.message : String(error) }))
@@ -221,26 +275,28 @@ export function ModelSelect({
     }
     // Same route AND same effective effort is the only true no-op. The earlier
     // guard compared provider/model only, which swallowed every effort switch.
-    if (isNoopSelection(dir, selection, next)) {
+    if (isNoopSelection(dirView, selection, next)) {
       close(true)
       return
     }
     const gen = ++generation.current
     setDir(prev => ({ ...prev, status: 'selecting', error: null }))
-    void ctx.connection.api.sessions.selectModel({
+    void ctx.remote.session.selectModel({
       sessionId,
       provider: next.provider,
       model: next.model,
       ...next.reasoningEffort === undefined ? {} : { reasoningEffort: next.reasoningEffort },
-    }).then((response) => {
+    }).then((result) => {
       if (gen !== generation.current) return
-      const { result } = response
       if (!result.ok) {
-        setDir(prev => ({ ...prev, status: 'error', error: `${result.error.code}: ${result.error.message}` }))
+        const detail = remoteErrorText(result.error)
+        setDir(prev => ({ ...prev, status: 'error', error: detail }))
         return
       }
-      setDir(prev => ({ ...prev, current: result.value.selected, routable: true, status: 'ready', error: null }))
-      onChange?.(result.value.selected)
+      // Hold the accepted selection locally until the projection settles on it.
+      const { selected } = result.value
+      setDir(prev => ({ ...prev, committed: selected, status: 'ready', error: null }))
+      onChange?.(selected)
       close(true)
     }).catch((error: unknown) => {
       if (gen !== generation.current) return
@@ -357,7 +413,7 @@ export function ModelSelect({
                               // Resolve against the DISPLAYED selection: picking
                               // the drafted route must carry its own effort
                               // forward, not the read session's.
-                              const picked = modelSelectionOf({ ...dir, current: selection }, modelChoiceId(group.id, model.id))
+                              const picked = modelSelectionOf({ ...dirView, current: selection }, modelChoiceId(group.id, model.id))
                               if (picked !== undefined) choose(picked)
                             }}
                           >

@@ -20,9 +20,9 @@
  *                seat displays the parent's model and refuses picks.
  *
  * In `draft` / `readonly` the parent session id is still handed to the seat, but
- * only as a READ address: `sessions.models` is a pure read (no log append, no
- * global write) and its catalog is provider-global, so a drafted model's
- * reasoning vocabulary comes back in the same response.
+ * only as a READ address: the seat reads the session's `modelSelection`
+ * projection (no log append, no global write) and the catalog it pairs it with
+ * is Host-global, so a drafted model's reasoning vocabulary is already loaded.
  */
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import type { SidebarqaModelSelection } from '../context-types.ts'

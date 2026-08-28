@@ -32,7 +32,7 @@
 
 ## 前置依赖（必装）
 
-`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话），且需 **`0.14.0+`**（对应 **DSH `0.1.0-rc.8`**；rc.7 及更早的 DSH 环境无法解析本插件的 peer 依赖，请先升级 DSH）。
+`dsh-better-sidebar` **必须安装**（未安装时本插件**不激活**，无任何 UI/行为，也不创建会话），且需 **`0.16.x`**（peer 依赖 `^0.16.0`，对应 **DSH `0.1.0-rc.8`**；rc.7 及更早的 DSH 环境无法解析本插件的 peer 依赖，请先升级 DSH）。
 
 ```bash
 dsh plugin --profile web add dsh-better-sidebar@latest
@@ -138,7 +138,7 @@ ctx.betterSidebar.openTab(
           ③ rename → "❓<划选文本首行占位>"
           ④ selectModel(默认 deepseek-v4-flash, 思考关闭)
           ⑤ prompt(摘要块 + <quoted_context> + 问题)
-        ─▶ 面板轮询 sessions.history 流式渲染 transcript（不跳转大窗口）
+        ─▶ 面板 follow session 日志流式渲染 transcript（不跳转大窗口）
         ─▶ 首次 turn/end 后 ⑥ host 标题：Q+A 截断 → llm 快速无思考模型提炼 ≤15 字主题
           → rename 覆盖为 "❓<最终主题>"（仅一次，失败保留占位）
         ─▶ 底部输入框继续追问；主对话零影响；追问可嵌套

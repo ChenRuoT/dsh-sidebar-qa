@@ -22,12 +22,18 @@ import { createSidebarqaStore } from './store.ts'
 import type { PendingQuote } from './store.ts'
 import { notifyTabActivated } from './tab-activation.ts'
 
-/** Services required before mounting (provided by the client runtime; betterSidebar by dsh-better-sidebar). */
-export const inject = ['betterSidebar', 'sessions', 'connection', 'workspaces']
+/**
+ * Services required before mounting (provided by the client runtime;
+ * betterSidebar by dsh-better-sidebar). `remote` is the typed client RPC
+ * service and `remote.session` its session namespace — each generated
+ * namespace is its own cordis service, so BOTH names must be injected before
+ * `ctx.remote.session` may be touched.
+ */
+export const inject = ['betterSidebar', 'sessions', 'remote', 'remote.session', 'workspaces']
 
 /**
  * Client plugin body.
- * @param ctx - the client cordis context (betterSidebar, sessions, connection, workspaces).
+ * @param ctx - the client cordis context (betterSidebar, sessions, remote, workspaces).
  */
 export function apply(ctx: Context): void {
   // One store and one selection controller per activation (no module-level
@@ -94,7 +100,12 @@ export function apply(ctx: Context): void {
       settings: {
         render: () => <ConfigPanel />,
       },
-      component: (props) => <AskPanel {...props} bsStore={props.store} store={store} />,
+      // `ctx` is deliberately OUR activation context, not the one
+      // better-sidebar hands the component: a cordis context only resolves the
+      // services its own plugin injected, and better-sidebar injects neither
+      // `remote` nor `remote.session`. Everything else in the props (scope,
+      // tab, visible, store) stays better-sidebar's.
+      component: (props) => <AskPanel {...props} ctx={ctx} bsStore={props.store} store={store} />,
       // Re-activation heal (issue #6): when the user collapsed the panel and
       // clicks 提问 again, openTab only re-focuses the existing tab (no
       // remount) — the activation signal lets the mounted panel self-heal.
@@ -106,7 +117,7 @@ export function apply(ctx: Context): void {
       icon: (size: number) => <IconQueueOutline14 size={size} />,
       order: 70,
       single: true,
-      component: (props) => <HistoryPanel {...props} bsStore={props.store} store={store} />,
+      component: (props) => <HistoryPanel {...props} ctx={ctx} bsStore={props.store} store={store} />,
       onActivate: () => notifyTabActivated(),
     })
     return () => {

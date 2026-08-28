@@ -21,6 +21,7 @@ import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
 import { resolveMetaQuote, consumeMetaQuote, resolveAskMode } from './meta-quote.ts'
+import { eventsOfRecords, followSession, mergeEntries, sessionAddress } from './session-wire.ts'
 import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-panel.ts'
 import { onTabActivated } from './tab-activation.ts'
 import type { SidebarqaStore } from './store.ts'
@@ -131,8 +132,12 @@ export function AskPanel(props: AskPanelProps) {
   const anchoredRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const anchorRowRef = useRef<HTMLDivElement>(null)
+  // The follow snapshot's inclusive log cut. `session.page` rejects any
+  // `throughSeq` the host did not hand out, so upward paging is only reachable
+  // once the live follow has opened.
+  const cursorRef = useRef<number | null>(null)
 
-  // The transcript rows derive from the loaded events (the poll and the
+  // The transcript rows derive from the loaded events (the follow and the
   // upward paging both append to `loadedEvents`). Declared before the anchor
   // effect so the effect can retry anchoring once the own first message lands.
   const rows = useMemo(() => transcriptRowsOf(loadedEvents), [loadedEvents])
@@ -156,6 +161,7 @@ export function AskPanel(props: AskPanelProps) {
     setAnchorSeq(null)
     setHasOlder(false)
     setLoadingOlder(false)
+    cursorRef.current = null
     if (scrollRef.current !== null) scrollRef.current.scrollTop = 0
   }, [activeChildId])
 
@@ -185,51 +191,32 @@ export function AskPanel(props: AskPanelProps) {
     if (visible) inputRef.current?.focus()
   }, [visible])
 
-  // Stream the active follow-up's transcript (poll the history tail). The
-  // first page anchors the fork-seed boundary; later pages append only the
-  // events newer than what is already loaded, so an upward-loaded inherited
-  // history is never dropped by the poll.
+  // Stream the active follow-up's transcript. The follow's opening window
+  // anchors the fork-seed boundary and hands out the log cut later pages must
+  // quote; every append after it arrives as its own frame, so the answer
+  // streams in instead of landing on a 1.2s poll tick. Reopening the follow
+  // (the tab was hidden, or the carrier reconnected) republishes that window,
+  // which merges by seq so an upward-loaded inherited history is never lost.
   useEffect(() => {
     if (activeChildId === null || !visible) return
-    let cancelled = false
-    const poll = async (): Promise<void> => {
-      try {
-        const response = await ctx.connection.api.sessions.history({ sessionId: activeChildId, maxMessages: 60 })
-        if (cancelled || !response.result.ok) return
-        const events = response.result.value.events
+    return followSession(ctx, activeChildId, {
+      snapshot: ({ entries, cursor, hasMore }) => {
+        cursorRef.current = cursor
         if (!seededRef.current) {
           seededRef.current = true
-          const seedIndex = lastEndSeedIndex(events)
-          const anchor = seedIndex >= 0 ? events[seedIndex]?.event.seq ?? null : null
-          setAnchorSeq(anchor)
-          setHasOlder(seedIndex >= 0 || response.result.value.hasMore)
-          setLoadedEvents(events)
-          // Right after an inherit ask, the prompt's `user/message` has not hit
-          // the log yet (prompt only queues into the agent inbox). The own
-          // message is therefore missing from this page — re-poll soon so the
-          // anchor effect can position on it, instead of waiting a full tick.
-          if (anchor !== null && !events.some(entry =>
-            entry.event.seq > anchor
-            && (entry.event.type === 'user/message' || entry.event.type === 'assistant/message'))) {
-            window.setTimeout(() => { if (!cancelled) void poll() }, 200)
-          }
+          const seedIndex = lastEndSeedIndex(entries)
+          setAnchorSeq(seedIndex >= 0 ? entries[seedIndex]?.event.seq ?? null : null)
+          setHasOlder(seedIndex >= 0 || hasMore)
+          setLoadedEvents(entries)
           return
         }
-        setLoadedEvents(prev => {
-          const latest = prev.at(-1)?.event.seq ?? -1
-          const fresh = events.filter(event => event.event.seq > latest)
-          return fresh.length === 0 ? prev : [...prev, ...fresh]
-        })
-      } catch {
-        // keep the last known transcript; retry on the next tick
-      }
-    }
-    void poll()
-    const timer = window.setInterval(() => { void poll() }, 1200)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
+        setLoadedEvents(prev => mergeEntries(prev, entries))
+        if (hasMore) setHasOlder(true)
+      },
+      append: (entry) => {
+        setLoadedEvents(prev => mergeEntries(prev, [entry]))
+      },
+    })
   }, [activeChildId, visible, ctx])
 
   // Post-answer retitle: fires once (guarded by the store's titled flag). Only
@@ -275,29 +262,33 @@ export function AskPanel(props: AskPanelProps) {
   const loadOlder = async (): Promise<void> => {
     if (activeChildId === null || loadingOlder || !hasOlder) return
     const first = loadedEvents[0]
-    if (first === undefined) return
+    const throughSeq = cursorRef.current
+    // Before the follow's opening frame there is no log cut to quote, so there
+    // is nothing to page back from either.
+    if (first === undefined || throughSeq === null) return
     setLoadingOlder(true)
     try {
       const before = first.event.seq
-      const response = await ctx.connection.api.sessions.history({
-        sessionId: activeChildId,
+      const result = await ctx.remote.session.page({
+        address: sessionAddress(activeChildId),
+        throughSeq,
         beforeSeq: before,
         maxMessages: 60,
       })
-      if (!response.result.ok) return
-      const older = response.result.value.events.filter(event => event.event.seq < before)
+      if (!result.ok) return
+      const older = eventsOfRecords(result.value.records).filter(entry => entry.event.seq < before)
       if (older.length > 0) {
         const scrollEl = scrollRef.current
         const heightBefore = scrollEl?.scrollHeight ?? 0
         setLoadedEvents(prev => [...older, ...prev])
-        setHasOlder(response.result.value.hasMore)
+        setHasOlder(result.value.hasMore)
         if (scrollEl !== null) {
           requestAnimationFrame(() => {
             scrollEl.scrollTop += scrollEl.scrollHeight - heightBefore
           })
         }
       } else {
-        setHasOlder(response.result.value.hasMore)
+        setHasOlder(result.value.hasMore)
       }
     } catch {
       // keep the loaded page; the next scroll retries

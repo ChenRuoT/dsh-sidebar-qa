@@ -10,9 +10,9 @@
  * - host: webServer (@deepseek-ai/dsh-host-webserver), sessionQuery
  *   (@deepseek-ai/dsh-session-query), llm (@deepseek-ai/dsh-llm), loader
  *   (@cordisjs/plugin-loader), settings (@deepseek-ai/dsh-settings)
- * - client: sessions (runtime ISessions list + create), connection
- *   (api-proxy RPC client), workspaces (runtime IWorkspaces list),
- *   betterSidebar (dsh-better-sidebar registry service)
+ * - client: sessions (runtime ISessions list + scope), remote (the typed
+ *   client Remote service and its `session` namespace), workspaces (runtime
+ *   IWorkspaces list), betterSidebar (dsh-better-sidebar registry service)
  * - effect / on: the DSH-vendored cordis lifecycle helper
  *
  * Drift from upstream is contained to this file. Only the leaf fields the
@@ -251,13 +251,12 @@ export interface SidebarqaSessionListSnapshot {
   byId: Record<string, SidebarqaSessionSummary>
 }
 
-/** The client sessions service face (list feed + create + open + scope). */
+/** The client sessions service face (list feed + open + scope). */
 export interface SidebarqaSessionsService {
   list: {
     getSnapshot(): SidebarqaSessionListSnapshot
     subscribe(fn: () => void): () => void
   }
-  create(opts: { workspaceId?: string; cwd?: string; sessionId?: string }): Promise<string>
   open(id: string): void
   /**
    * Resolve an Agent-scoped context view for one listed session (use-and-discard).
@@ -314,19 +313,61 @@ export interface SidebarqaContextBreakdown {
   messageTokens: number
 }
 
-/** RPC result slot mirror (`RpcResult<T>` on the wire). */
-export type SidebarqaRpcResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
+/**
+ * What every generated Remote method resolves to (mirror of
+ * `RemoteResult<T>` in `@deepseek-ai/dsh-typert-protocol`). The Remote face
+ * folds carrier failures into the error branch itself, so a call only rejects
+ * on an assembly fault (arity, an unmounted method) — never on a business or
+ * transport error.
+ */
+export type SidebarqaRemoteResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: string; message: string; details?: object } }
 
-/** Unary response mirror (`RpcResponse<T>` on the wire). */
-export interface SidebarqaRpcResponse<T> {
-  result: SidebarqaRpcResult<T>
-}
-
-/** One history page entry. */
+/** One history page entry (a scalar event, unpacked from the wire records). */
 export interface SidebarqaHistoryEntry {
   event: SidebarqaSessionEvent
   view?: unknown
 }
+
+/** Durable identity of one ordinary session on the journal RPCs. */
+export interface SidebarqaSessionAddress {
+  kind: 'session'
+  sessionId: string
+}
+
+/**
+ * One packed run of consecutive assistant delta events (`chunkrow/text-chunks`,
+ * `chunkrow/reasoning-chunks`, `chunkrow/tool-call-chunks`). The host packs
+ * runs into a single record to keep pages small; `session-wire.ts` unpacks them
+ * back into per-seq `assistant/chunk` events so the transcript folder stays a
+ * pure function of scalar events.
+ */
+export interface SidebarqaChunkRunEvent {
+  type: string
+  seq: number
+  time: number
+  data: Record<string, unknown>
+}
+
+/** One history-page record: a raw event, or a packed assistant delta run. */
+export type SidebarqaHistoryRecord =
+  | { type: 'event'; event: SidebarqaSessionEvent }
+  | { type: 'chunks'; event: SidebarqaChunkRunEvent }
+
+/**
+ * One frame of an addressed session's live journal: the complete opening
+ * window (whose `cursor` is the inclusive log cut every later `page` call must
+ * quote), then every event appended after it.
+ */
+export type SidebarqaFollowFrame =
+  | {
+    type: 'snapshot'
+    cursor: number
+    records: readonly SidebarqaHistoryRecord[]
+    hasMore: boolean
+  }
+  | { type: 'event'; event: SidebarqaSessionEvent }
 
 /** Complete model selection for one session. */
 export interface SidebarqaModelSelection {
@@ -371,7 +412,13 @@ export interface SidebarqaModelCatalogFailure {
   message?: string
 }
 
-/** The advisory model directory one `session.models` call returns (mirror of SessionModels). */
+/**
+ * The advisory model directory the seat renders from. NOT a wire type any
+ * more: the host splits it into the Host-generation `session.modelCatalog()`
+ * (groups + failures + routable providers + default) and the per-session
+ * `modelSelection` projection (`current`). `ModelSelect` recombines the two
+ * into this shape so the pure menu helpers keep one directory face.
+ */
 export interface SidebarqaSessionModels {
   current: SidebarqaModelSelection | null
   /** Whether an adapter serves the current selection's provider (null before the first load). */
@@ -380,10 +427,37 @@ export interface SidebarqaSessionModels {
   failures: readonly SidebarqaModelCatalogFailure[]
 }
 
-/** The sessions RPC surface the client reaches through `ctx.connection.api`. */
-export interface SidebarqaSessionsRpc {
-  create(payload: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }):
-    Promise<SidebarqaRpcResponse<{ sessionId: string; agentPreset?: string }>>
+/** The Host-generation model catalog (`session.modelCatalog`). */
+export interface SidebarqaModelCatalog {
+  /** The selection an unconfigured session runs with. */
+  default: SidebarqaModelSelection
+  /** Provider routes currently able to serve a request, including empty catalogs. */
+  routableProviders: readonly string[]
+  groups: readonly SidebarqaModelProviderGroup[]
+  failures: readonly SidebarqaModelCatalogFailure[]
+}
+
+/**
+ * The durable per-session model selection, as the `modelSelection` projection
+ * reports it. Published for EVERY listed session through the Host-wide session
+ * control stream, so it reads for a follow-up the plugin never opens.
+ */
+export interface SidebarqaModelSelectionProjection {
+  /** Selection consumed by the latest recorded model request. */
+  lastUsed: SidebarqaModelSelection | null
+  /** Selection the next request should use; falls back to {@link lastUsed}. */
+  next: SidebarqaModelSelection | null
+}
+
+/**
+ * The generated `session` Remote namespace (`ctx.remote.session`), which
+ * replaced the removed `ctx.connection.api.sessions` surface. Every method
+ * resolves to a flat {@link SidebarqaRemoteResult} — there is no `{ result }`
+ * envelope any more.
+ */
+export interface SidebarqaSessionRemote {
+  create(request: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }):
+    Promise<SidebarqaRemoteResult<{ sessionId: string; agentPreset?: string }>>
   /**
    * Fork a session from its latest completed-turn boundary (or an `atSeq`
    * anchor): the child inherits the parent's full history as a frozen seed,
@@ -391,25 +465,54 @@ export interface SidebarqaSessionsRpc {
    * automatic prefix cache hits. Fails with `fork-unavailable` when the
    * source has no completed turn (e.g. the agent is mid-turn).
    */
-  fork(payload: { sessionId: string; atSeq?: number }):
-    Promise<SidebarqaRpcResponse<{ sessionId: string }>>
-  rename(payload: { sessionId: string; title: string }):
-    Promise<SidebarqaRpcResponse<{ title: string; seq: number }>>
-  selectModel(payload: { sessionId: string; provider: string; model: string; reasoningEffort?: string }):
-    Promise<SidebarqaRpcResponse<{ selected: SidebarqaModelSelection }>>
-  models(payload: { sessionId: string }):
-    Promise<SidebarqaRpcResponse<SidebarqaSessionModels>>
-  prompt(payload: { sessionId: string; mode: 'queue' | 'steer'; content: { type: 'text'; text: string }[]; clientTimeZone?: string }):
-    Promise<SidebarqaRpcResponse<{ accepted: true }>>
-  history(payload: { sessionId: string; beforeSeq?: number; maxMessages?: number }):
-    Promise<SidebarqaRpcResponse<{ events: SidebarqaHistoryEntry[]; hasMore: boolean }>>
+  fork(request: { sessionId: string; atSeq?: number }):
+    Promise<SidebarqaRemoteResult<{ sessionId: string }>>
+  rename(request: { sessionId: string; title: string }):
+    Promise<SidebarqaRemoteResult<{ title: string; seq: number }>>
+  selectModel(request: { sessionId: string; provider: string; model: string; reasoningEffort?: string }):
+    Promise<SidebarqaRemoteResult<{ selected: SidebarqaModelSelection }>>
+  /** The Host-generation advisory catalog (no session address: it is global). */
+  modelCatalog(): Promise<SidebarqaRemoteResult<SidebarqaModelCatalog>>
+  prompt(
+    request: {
+      /** Client-minted identity persisted on the exact accepted user message. */
+      requestId: string
+      sessionId: string
+      mode: 'queue' | 'steer'
+      content: { type: 'text'; text: string }[]
+      clientTimeZone?: string
+    },
+    signal?: AbortSignal,
+  ): Promise<SidebarqaRemoteResult<{ accepted: true }>>
+  /**
+   * One message-aligned backwards page. `throughSeq` pins the read to a stable
+   * log cut and MUST be a cursor the host handed out (a follow snapshot's) —
+   * an invented value is rejected, so paging is only reachable behind a live
+   * {@link SidebarqaSessionRemote.follow}.
+   */
+  page(
+    request: {
+      address: SidebarqaSessionAddress
+      throughSeq: number
+      beforeSeq?: number
+      maxMessages?: number
+    },
+    signal?: AbortSignal,
+  ): Promise<SidebarqaRemoteResult<{ records: readonly SidebarqaHistoryRecord[]; hasMore: boolean }>>
+  /** The addressed session's opening window followed by its live appends. */
+  follow(
+    request: { address: SidebarqaSessionAddress; maxMessages?: number },
+    signal?: AbortSignal,
+  ): AsyncIterable<SidebarqaFollowFrame>
 }
 
-/** The connection handle face (only the sessions RPC is needed). */
-export interface SidebarqaConnectionHandle {
-  api: {
-    sessions: SidebarqaSessionsRpc
-  }
+/**
+ * The typed client Remote service (`ctx.remote`). Only the `session` namespace
+ * is mirrored; reaching it requires BOTH `'remote'` and `'remote.session'` in
+ * the plugin's inject list (each namespace is its own cordis service).
+ */
+export interface SidebarqaRemoteService {
+  session: SidebarqaSessionRemote
 }
 
 /** One workspace row the client reads (workspaceId + accounted session ids). */
@@ -471,7 +574,14 @@ declare module 'cordis' {
     loader: SidebarqaLoader
     settings: SidebarqaSettingsService
     sessions: SidebarqaSessionsService
-    connection: SidebarqaConnectionHandle
+    /**
+     * The typed client Remote service (DSH ≥ the `own RPC transport
+     * contracts` refactor). It replaced `ctx.connection.api`, whose `api`
+     * member no longer exists on the connection handle at all — reading
+     * `connection.api.sessions` is what used to crash the panel with
+     * "Cannot read properties of undefined (reading 'sessions')".
+     */
+    remote: SidebarqaRemoteService
     workspaces: SidebarqaWorkspacesService
     /**
      * The client-side sidebar registry: external plugins register tab types

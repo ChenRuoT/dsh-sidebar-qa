@@ -23,7 +23,8 @@
 import type { Context } from '../context-types.ts'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { workspaceOwningSession } from './history-scope.ts'
-import { currentModelOf, sidebarqaApi, type ContextResult, type SidebarqaConfigView } from './api.ts'
+import { sidebarqaApi, type ContextResult, type SidebarqaConfigView } from './api.ts'
+import { currentModelOf, mintRequestId, unwrapRemote } from './session-wire.ts'
 import { buildFirstMessage, followUpTitle, parseUserMessage, topicFromQuote } from './injection.ts'
 import { hasTurnEnded, transcriptOf } from './answer.ts'
 import { buildTitleInput } from '../title.ts'
@@ -65,8 +66,8 @@ function sessionCwd(ctx: Context, sessionId: string): string | undefined {
 /** Best-effort rename that never blocks the ask. */
 async function tryRename(ctx: Context, sideSessionId: string, title: string): Promise<void> {
   try {
-    const response = await ctx.connection.api.sessions.rename({ sessionId: sideSessionId, title })
-    if (!response.result.ok) console.warn('[dsh-sidebar-qa] rename failed:', response.result.error.message)
+    const result = await ctx.remote.session.rename({ sessionId: sideSessionId, title })
+    if (!result.ok) console.warn('[dsh-sidebar-qa] rename failed:', result.error.message)
   } catch (error) {
     console.warn('[dsh-sidebar-qa] rename failed:', error)
   }
@@ -81,7 +82,7 @@ async function trySelectModel(
   override?: SidebarqaModelSelection,
 ): Promise<void> {
   try {
-    const response = await ctx.connection.api.sessions.selectModel({
+    const result = await ctx.remote.session.selectModel({
       sessionId: sideSessionId,
       provider: override?.provider ?? config.answerProvider,
       model: override?.model ?? config.answerModel,
@@ -93,7 +94,7 @@ async function trySelectModel(
         ? { reasoningEffort: config.answerReasoningEffort }
         : override.reasoningEffort === undefined ? {} : { reasoningEffort: override.reasoningEffort }),
     })
-    if (!response.result.ok) console.warn('[dsh-sidebar-qa] selectModel failed:', response.result.error.message)
+    if (!result.ok) console.warn('[dsh-sidebar-qa] selectModel failed:', result.error.message)
   } catch (error) {
     console.warn('[dsh-sidebar-qa] selectModel failed:', error)
   }
@@ -124,23 +125,22 @@ async function loadConfig(ctx: Context): Promise<SidebarqaConfigView> {
 
 /** Best-effort fork of the parent (the `inherit` strategy's session creation). */
 async function tryForkParent(ctx: Context, parentSessionId: string): Promise<string> {
-  const response = await ctx.connection.api.sessions.fork({ sessionId: parentSessionId })
-  if (!response.result.ok) {
-    throw new Error(`fork failed: ${response.result.error.code}: ${response.result.error.message}`)
-  }
-  return response.result.value.sessionId
+  return unwrapRemote(await ctx.remote.session.fork({ sessionId: parentSessionId }), 'fork').sessionId
 }
 
 /** Prompt a side session with the assembled first message (throws on failure). */
 async function tryPrompt(ctx: Context, sideSessionId: string, text: string): Promise<void> {
-  const response = await ctx.connection.api.sessions.prompt({
-    sessionId: sideSessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text }],
-  })
-  if (!response.result.ok) {
-    throw new Error(`prompt failed: ${response.result.error.code}: ${response.result.error.message}`)
-  }
+  unwrapRemote(
+    await ctx.remote.session.prompt({
+      // Client-minted identity the host persists on the accepted user message
+      // (a required field since the Remote migration).
+      requestId: mintRequestId(),
+      sessionId: sideSessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
+    }),
+    'prompt',
+  )
 }
 
 /**
@@ -164,10 +164,10 @@ export async function askFollowUp(
   const { parentSessionId, quote, question } = input
   onPhase?.('preparing')
 
-  const [config, currentModel] = await Promise.all([
-    loadConfig(ctx),
-    currentModelOf(ctx, parentSessionId),
-  ])
+  // The parent's model is a local projection read now (no RPC), so only the
+  // config call is awaited.
+  const currentModel = currentModelOf(ctx, parentSessionId)
+  const config = await loadConfig(ctx)
   const workspaceId = resolveWorkspaceId(ctx, parentSessionId)
   const cwd = workspaceId === undefined ? sessionCwd(ctx, parentSessionId) : undefined
   // The model-facing language of THIS ask (the answer language itself follows
@@ -216,17 +216,17 @@ export async function askFollowUp(
         : {}),
   }).catch((): ContextResult => ({ degraded: true, text: null, sourceSeq: -1, reason: 'network' }))
 
-  const createResponse = await ctx.connection.api.sessions.create(
-    workspaceId !== undefined
-      ? { workspaceId }
-      : cwd !== undefined
-        ? { cwd }
-        : {},
+  const created = unwrapRemote(
+    await ctx.remote.session.create(
+      workspaceId !== undefined
+        ? { workspaceId }
+        : cwd !== undefined
+          ? { cwd }
+          : {},
+    ),
+    'create session',
   )
-  if (!createResponse.result.ok) {
-    throw new Error(`create session failed: ${createResponse.result.error.code}: ${createResponse.result.error.message}`)
-  }
-  const sideSessionId = createResponse.result.value.sessionId
+  const sideSessionId = created.sessionId
   const context = await contextPromise
 
   await tryRename(ctx, sideSessionId, followUpTitle(topicFromQuote(quote.text, prompts.fallbackTopic)))
@@ -245,14 +245,7 @@ export async function askFollowUp(
  * the first message carries the compressed parent context, per PRD 6).
  */
 export async function sendFollowUp(ctx: Context, sideSessionId: string, question: string): Promise<void> {
-  const response = await ctx.connection.api.sessions.prompt({
-    sessionId: sideSessionId,
-    mode: 'queue',
-    content: [{ type: 'text', text: question }],
-  })
-  if (!response.result.ok) {
-    throw new Error(`prompt failed: ${response.result.error.code}: ${response.result.error.message}`)
-  }
+  await tryPrompt(ctx, sideSessionId, question)
 }
 
 /**
@@ -299,10 +292,8 @@ export async function titleSideSessionOnce(
   if (text.trim() === '') return
 
   try {
-    const [config, parentModel] = await Promise.all([
-      loadConfig(ctx),
-      currentModelOf(ctx, parentSessionId),
-    ])
+    const parentModel = currentModelOf(ctx, parentSessionId)
+    const config = await loadConfig(ctx)
     const provider = config.summarizeProvider !== ''
       ? config.summarizeProvider
       : parentModel?.provider ?? config.answerProvider

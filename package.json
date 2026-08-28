@@ -65,7 +65,7 @@
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.8",
     "cordis": "^4.0.0-rc.8",
-    "dsh-better-sidebar": "^0.14.0",
+    "dsh-better-sidebar": "^0.16.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

@@ -3,7 +3,6 @@
  * method — the three history strategies — plus title and config). Mirrors the
  * wire envelope `{ok: true, value} | {ok: false, error}`.
  */
-import type { Context } from '../context-types.ts'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import type { SidebarqaCatalog } from '../context-types.ts'
 
@@ -95,15 +94,4 @@ export const sidebarqaApi = {
       patch,
       ...(expectedRevision !== undefined ? { expectedRevision } : {}),
     }),
-}
-
-/** Resolve a session's current model selection (used to inherit the summarize provider). */
-export async function currentModelOf(ctx: Context, sessionId: string): Promise<{ provider: string; model: string; reasoningEffort?: string } | undefined> {
-  try {
-    const response = await ctx.connection.api.sessions.models({ sessionId })
-    if (!response.result.ok) return undefined
-    return response.result.value.current ?? undefined
-  } catch {
-    return undefined
-  }
 }

@@ -8,7 +8,7 @@
  * import. Renders nothing until a provider reports both pressure and a route
  * capacity.
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   Context,
@@ -16,6 +16,7 @@ import type {
   SidebarqaContextPressure,
 } from '../context-types.ts'
 import { contextOccupancy, formatTokens } from './context-meter.ts'
+import { useProjectionValue } from './use-projection.ts'
 import { t } from './locales.ts'
 import css from './ask-panel.module.css'
 
@@ -31,26 +32,6 @@ const ROWS = [
   { key: 'toolsTokens', labelKey: 'meterTools', color: css.meterColorTools },
   { key: 'messageTokens', labelKey: 'meterMessages', color: css.meterColorMessages },
 ] as const
-
-/**
- * One projection key's value for a session, as a React observable.
- * Absent projections (face undefined or value undefined) read `undefined`.
- */
-function useProjectionValue(ctx: Context, sessionId: string, key: string): unknown {
-  const face = useMemo(() => {
-    try {
-      const scoped = ctx.sessions.scope(sessionId)
-      if (scoped === undefined) return undefined
-      return ctx.sessions.sessionOf(scoped)?.projections.faceOf(key)
-    } catch {
-      return undefined
-    }
-  }, [ctx, sessionId, key])
-  return useSyncExternalStore(
-    (cb) => face?.subscribe(cb) ?? (() => {}),
-    () => face?.getSnapshot(),
-  )
-}
 
 export interface ContextMeterProps {
   ctx: Context

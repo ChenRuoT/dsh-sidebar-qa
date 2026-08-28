@@ -32,7 +32,7 @@
 
 ## Prerequisites (required)
 
-`dsh-better-sidebar` **must be installed** (without it the plugin stays **inactive** — no UI, no behavior, no session creation), and it must be **`0.14.0+`** (matching **DSH `0.1.0-rc.8`**; DSH rc.7 and earlier cannot resolve this plugin's peer dependencies — upgrade DSH first).
+`dsh-better-sidebar` **must be installed** (without it the plugin stays **inactive** — no UI, no behavior, no session creation), and it must be **`0.16.x`** (peer dependency `^0.16.0`, matching **DSH `0.1.0-rc.8`**; DSH rc.7 and earlier cannot resolve this plugin's peer dependencies — upgrade DSH first).
 
 ```bash
 dsh plugin --profile web add dsh-better-sidebar@latest
@@ -138,7 +138,7 @@ select text ─▶ popover[Ask] ─▶ right panel (quote + bottom composer)
            ③ rename → "❓<placeholder from first quoted line>"
            ④ selectModel (default deepseek-v4-flash, thinking off)
            ⑤ prompt(summary block + <quoted_context> + question)
-        ─▶ panel polls sessions.history and streams the transcript (no main-window jump)
+        ─▶ panel follows the session journal and streams the transcript (no main-window jump)
         ─▶ after the first turn/end ⑥ host title: Q+A truncated → llm fast no-thinking model distills the topic
           → rename overwrites to "❓<final topic>" (once; the placeholder survives a failure)
         ─▶ keep asking from the bottom composer; the main conversation is untouched; follow-ups nest
