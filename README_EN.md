@@ -33,7 +33,7 @@
 
 ## 📦 Changelog
 
-### 0.5.0 - 2026-08-28
+### 0.5.0 - 2026-08-29
 
 - **Two-button selection popover ([issue #11](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/11))**：the new **“Add to chat”** button appends the selection to the **current session's main composer** as a `>` blockquote and focuses it (caret on the line below), **without creating a session or opening the sidebar**; **“Ask”** is unchanged. Client-only change — a hard browser refresh is enough.
 

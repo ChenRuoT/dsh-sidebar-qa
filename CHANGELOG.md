@@ -2,7 +2,7 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [0.5.0] - 2026-08-28
+## [0.5.0] - 2026-08-29
 
 ### Added
 
@@ -26,7 +26,7 @@
 > 部署提醒：**仅 client 半改动**，浏览器硬刷新即可，无需重启 `dsh web`。
 > 已知限制：输入框里已有的 `@` 引用 chip 会在这次写入中被降级成纯文本——`setDraft` 是 composer 唯一的公开写入路径，它按纯文本重建整棵节点树（`dsh-better-sidebar` 的 `appendToDraft` 有同样的行为）。**输入框为空时（最常见路径）完全不受影响。**
 
-## [0.4.2] - 2026-08-28
+## [0.4.2] - 2026-08-29
 
 ### Changed
 
