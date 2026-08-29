@@ -2,6 +2,30 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.5.0] - 2026-08-28
+
+### Added
+
+- **划选浮层由一个按钮拆成两个（[issue #11](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/11)）**：
+  - **「添加到对话」**（新增）：把划选文本以 Markdown `>` 引用块**追加**进**当前会话的主输入框**（composer），聚焦并把光标停在引用块下方的空行——**不新建会话、不打开也不展开侧边栏**。适合「引用这段话，我就在主对话里接着说」，与开一个独立追问会话互为轻重两条路。
+  - **「提问」**：文案与行为**逐字节不变**（存 pending 引文 + `openTab({ type: 'dsh-sidebar-qa:ask' })`）。之所以没有按 issue 原文改名「侧边聊天」，是因为 `dsh-better-sidebar` 0.16.x 自己就有一个叫 Side Chat / 侧边聊天的视图，改名会与上游功能撞车。
+  - 引用块格式：**逐行**加 `> ` 前缀（选区内的空行渲染成裸 `>`，否则一个引用块会被截断成两个）；块尾留一个空行，所以光标落在引用块**外面**——紧贴 `> x` 下一行写字在 Markdown 里属于 lazy continuation，会被吸进引用块里。
+  - **追加而非覆盖**：输入框里已有的内容一个字都不动，引用块空行分隔接在后面；连点两次会追加两个引用块（刻意不做幂等）。
+  - 走 DSH `ui-conversation` 的 `conversation` 服务（`ctx.get('conversation')` → `input.for(scope).setDraft`），与 `dsh-better-sidebar` 资源管理器的 `@` 文件引用是同一条路径，**没有任何 DOM hack**。
+  - 新增纯模块 `src/client/quote-draft.ts`（引用块格式化 + 草稿合并）与薄接线模块 `src/client/draft-insert.ts`，各自带单测（`tests/quote-draft.spec.ts` 21 例、`tests/draft-insert.spec.ts` 12 例）。
+
+### Changed
+
+- `src/context-types.ts` 增补 `conversation` 服务的结构化镜像（`SidebarqaConversationService` / `SidebarqaSessionInput`）并挂上 Context augmentation——与上游的漂移仍然只收敛在这一个文件里。声明它同时让 `ctx.get('conversation')` 返回**有类型**的服务面而不是 `any`（cordis 把 `get` 定义为 `<K extends string & keyof this>(name: K) => this[K] | undefined`）。
+- 新增文案键 `askAddToConversation`（zh `添加到对话` / en `Add to chat`）。`askPopoverButton` 与三条提到「提问」的空状态提示均未改动。
+
+### 降级契约
+
+`conversation` 服务缺失（没装 ui-conversation 的部署）、会话 scope 解析不到、或调用链上任意一处抛错 → 「添加到对话」记一条 `console.warn` 后**什么都不做，并且保留划选与浮层**，用户可以改点「提问」。插件本身、浮层、以及原有的追问流程都不受影响；`conversation` **没有**进 `inject`，所以它的缺席不会让插件不激活。
+
+> 部署提醒：**仅 client 半改动**，浏览器硬刷新即可，无需重启 `dsh web`。
+> 已知限制：输入框里已有的 `@` 引用 chip 会在这次写入中被降级成纯文本——`setDraft` 是 composer 唯一的公开写入路径，它按纯文本重建整棵节点树（`dsh-better-sidebar` 的 `appendToDraft` 有同样的行为）。**输入框为空时（最常见路径）完全不受影响。**
+
 ## [0.4.2] - 2026-08-28
 
 ### Changed

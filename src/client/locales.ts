@@ -39,6 +39,7 @@ export const zh = {
   // ── 追问 tab (AskPanel) + the selection popover ───────────────────────────
   askTabTitle: '追问',
   askPopoverButton: '提问',
+  askAddToConversation: '添加到对话',
   askNewAsk: '新追问',
   askQuoteHead: '引文',
   askNoQuoteHint: '未选择文本，可直接提问（仅不带引文）。',
@@ -140,6 +141,7 @@ export const en: Record<CopyKey, string> = {
 
   askTabTitle: 'Follow-up',
   askPopoverButton: 'Ask',
+  askAddToConversation: 'Add to chat',
   askNewAsk: 'New follow-up',
   askQuoteHead: 'Quote',
   askNoQuoteHint: 'No text selected — you can still ask without a quote.',

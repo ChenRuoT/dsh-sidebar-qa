@@ -1,6 +1,6 @@
 /**
  * Client half of dsh-sidebar-qa: the selection-capture controller + floating
- * "提问" popover, and the two better-sidebar tabs (`dsh-sidebar-qa:ask` and
+ * 「添加到对话」/「提问」 popover, and the two better-sidebar tabs (`dsh-sidebar-qa:ask` and
  * `dsh-sidebar-qa:history`). It is a thin consumer of dsh-better-sidebar — it
  * builds no panel chrome (portal/resize/折叠/persistence/settings shell);
  * the panel container is entirely better-sidebar's.
@@ -18,6 +18,7 @@ import { HistoryPanel } from './HistoryPanel.tsx'
 import { SelectionPopover } from './SelectionPopover.tsx'
 import { createSelectionController } from './selection.ts'
 import { attachLocale, en, LOCALE_NS, t, zh } from './locales.ts'
+import { insertQuoteIntoComposer } from './draft-insert.ts'
 import { createSidebarqaStore } from './store.ts'
 import type { PendingQuote } from './store.ts'
 import { notifyTabActivated } from './tab-activation.ts'
@@ -73,13 +74,27 @@ export function apply(ctx: Context): void {
     ctx.betterSidebar.openTab({ type: 'dsh-sidebar-qa:ask' })
   }
 
-  // The floating "提问" button (own body host root, fixed-position).
+  // Capture a selection → append it as a `>` blockquote to the CURRENT
+  // session's MAIN composer and focus it, caret at the end. Deliberately does
+  // NOT open (or expand) the sidebar — this is the lightweight sibling of 追问.
+  // Returns false when ui-conversation or the session scope is unreachable, so
+  // the popover keeps the selection and 提问 stays one click away.
+  const onAddToConversation = (quote: PendingQuote, sessionId: string): boolean =>
+    insertQuoteIntoComposer(ctx, sessionId, quote.text)
+
+  // The floating 「添加到对话」/「提问」 bar (own body host root, fixed-position).
   ctx.effect(() => {
     const host = document.createElement('div')
     host.setAttribute('data-dsh-sidebar-qa', '')
     document.body.appendChild(host)
     const root: Root = createRoot(host)
-    root.render(<SelectionPopover controller={selectionController} onAsk={onAsk} />)
+    root.render(
+      <SelectionPopover
+        controller={selectionController}
+        onAsk={onAsk}
+        onAddToConversation={onAddToConversation}
+      />,
+    )
     return () => {
       root.unmount()
       host.remove()

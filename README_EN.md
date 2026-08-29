@@ -19,6 +19,7 @@
 ## ✨ Features
 
 - **📝 Select-and-ask**: select any text in a conversation → floating “Ask” button → an embedded Q&A in the right panel, without ever leaving the main window; **the panel auto-expands even when collapsed**, so “Ask” always gives visible feedback
+- **💬 Add to chat**: the other button on the same popover appends the selection to the **current session's main composer** as a `>` blockquote and focuses it (caret on the line below), **without creating a session or opening the sidebar** — for when you just want to keep talking in place ([issue #11](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/11))
 - **🧠 Smart summary**: a fast no-thinking model compresses the main conversation context into a small summary, injected together with the quoted selection in the first message
 - **🔀 Three context strategies**: switch per ask between **inherit full history** (fork + prefix-cache hit), **compressed** and **trim** — from the in-panel selector or the configured default
 - **🔗 Dedicated sessions**: each follow-up is a real DSH session in the same workspace (`❓<topic>`), continuable and archivable, with zero interruption to the main conversation
@@ -29,6 +30,12 @@
 - **🌏 Bilingual (zh / en)**: UI copy and model-facing prompts follow the DSH language setting and switch live (no reload); **the answer language follows the content you ask about**, not the interface language
 
 > 🔌 Built on **[dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)** as a third-party extension tab, registered through `ctx.betterSidebar.registerTab`; capability-equal to built-in tabs, install and go.
+
+## 📦 Changelog
+
+### 0.5.0 - 2026-08-28
+
+- **Two-button selection popover ([issue #11](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/11))**：the new **“Add to chat”** button appends the selection to the **current session's main composer** as a `>` blockquote and focuses it (caret on the line below), **without creating a session or opening the sidebar**; **“Ask”** is unchanged. Client-only change — a hard browser refresh is enough.
 
 ## Prerequisites (required)
 
@@ -93,7 +100,9 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
 └── src/client/             browser: selection capture, popover, ask panel, orchestration, records
     ├── index.tsx           apply: register 2 better-sidebar tabs + popover + locale dictionaries
     ├── selection.ts        selection capture & validation (single message / non-streaming / ≤2000 chars)
-    ├── SelectionPopover.tsx floating “Ask” button
+    ├── SelectionPopover.tsx floating “Add to chat” / “Ask” buttons
+    ├── quote-draft.ts       blockquote formatting + draft merge (pure)
+    ├── draft-insert.ts      write the quote into the main composer (conversation service)
     ├── AskPanel.tsx         Follow-up tab (embedded conversation: streaming transcript + DSH-style composer + switcher)
     ├── HistoryPanel.tsx     Follow-ups tab (layered tree: collapse buttons + last-activity time + workspace scope + archived/deleted greying and removal)
     ├── history-scope.ts     workspace resolution + tree filtering + subtree last-activity + session status (live/archived/gone) and subtree removal (pure, tested)
@@ -132,7 +141,8 @@ The panel prefers `meta.quote` (shape-validated: `text` must be a non-empty stri
 ### Key data flow
 
 ```
-select text ─▶ popover[Ask] ─▶ right panel (quote + bottom composer)
+select text ─┬▶ popover[Add to chat] ─▶ current session’s main composer (> blockquote + focus)
+             └▶ popover[Ask] ─▶ right panel (quote + bottom composer)
   Enter ─▶ ① host context: sessionQuery.readSurface(asked session) → llm fast no-thinking model compresses
            ② client creates the session sessions.create(workspaceId)
            ③ rename → "❓<placeholder from first quoted line>"

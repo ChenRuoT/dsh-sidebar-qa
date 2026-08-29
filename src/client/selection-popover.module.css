@@ -8,11 +8,18 @@
   z-index: 2147483000;
   transform: translate(-50%, -100%);
   pointer-events: auto;
+  /* Two actions side by side. nowrap keeps the pair on one line: the box is
+     centered on the selection, so wrapping would jump it vertically. */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
-.ask {
+/* Shared shape (the pre-#11 `.ask` rule, with the accent border factored out). */
+.action {
   appearance: none;
-  border: 1px solid var(--dsw-alias-state-business-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-button-floating-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
@@ -23,6 +30,22 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-.ask:hover {
+.action:hover {
   background: var(--dsw-alias-button-floating-hover);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+/* 提问 keeps the accent border the single pre-#11 button had, so the habitual
+   action stays visually where users already look for it. */
+.primary {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+/* 添加到对话: neutral border + dimmer label, the lighter-weight sibling. */
+.secondary {
+  color: var(--dsw-alias-label-secondary);
 }

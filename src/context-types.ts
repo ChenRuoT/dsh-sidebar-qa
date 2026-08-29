@@ -562,6 +562,48 @@ export interface SidebarqaLocaleService {
   register(ns: string, locale: string, dict: Record<string, string>): () => void
 }
 
+/**
+ * The per-session composer input face (`conversation.input.for(actx)`;
+ * structural mirror of ui-conversation's `SessionInput`). Only the slices the
+ * 「添加到对话」 button touches are restated.
+ */
+export interface SidebarqaSessionInput {
+  /** Live input store. Only `draft` (the clipboard-text projection) is read. */
+  state: {
+    getSnapshot(): { draft: string }
+  }
+  /**
+   * Replace the WHOLE draft — the input machine's single public write path.
+   * `\n` splits paragraphs and the caret lands at the end, but a write whose
+   * cleaned text equals the current projection EARLY-RETURNS, so an identical
+   * write is a silent no-op that does not move the caret. No phase guard.
+   */
+  setDraft(text: string): void
+  /**
+   * The shell-owned Lexical editor. It is a public readonly field of
+   * `SessionInputShell` at runtime but is NOT on ui-conversation's frozen
+   * `SessionInput` interface — hence OPTIONAL here, with every read guarded.
+   * `setDraft` never takes DOM focus; this is how the composer gets it, in the
+   * order DSH's own `skeleton/InputBar.tsx` uses. Absent → `draft-insert.ts`
+   * falls back to a plain DOM focus on `[data-composer-input]`.
+   */
+  editor?: {
+    getRootElement(): HTMLElement | null
+    focus(onDone?: () => void): void
+  }
+}
+
+/**
+ * The `conversation` cordis service published by DSH's ui-conversation
+ * (structural mirror of `IConversation`; only the input resolver is needed).
+ */
+export interface SidebarqaConversationService {
+  input: {
+    /** Resolve the composer facade for one session-scope ctx (`sessions.scope`). */
+    for(actx: Context): SidebarqaSessionInput
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Context augmentation (dual cordis scope)
 // ────────────────────────────────────────────────────────────────────────────
@@ -598,6 +640,18 @@ declare module 'cordis' {
      * language. See `src/client/locales.ts`.
      */
     locale: SidebarqaLocaleService
+    /**
+     * DSH's ui-conversation service (`@deepseek-ai/dsh-client-ui-conversation`),
+     * the owner of the main chat composer. Client side only, and OPTIONAL in
+     * the same sense as `locale`: it is NOT in this plugin's cordis `inject`
+     * list, it is read with the inject-free `ctx.get('conversation')` (a value
+     * import would trip the client-bundle purity gate), and every consumer
+     * guards the `undefined`. Declaring it here is what lets `ctx.get` return
+     * the typed face instead of `any` — cordis types `get` as
+     * `<K extends string & keyof this>(name: K) => this[K] | undefined`.
+     * See `src/client/draft-insert.ts`.
+     */
+    conversation: SidebarqaConversationService
     /**
      * Subscribe to the session append feed (mirror of the cordis event API):
      * the listener receives every appended session event with the LIVE
