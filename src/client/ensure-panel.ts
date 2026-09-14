@@ -16,6 +16,19 @@
  * viewport the landing pane is the active pane — expand the bottom panel when
  * it lives in the bottom tree, else the right panel.
  *
+ * NATIVE ERA (better-sidebar >= 0.19 — dsh-sidebar-qa issue #16): the right
+ * column is no longer the plugin's. DSH's own right Sidebar owns it and
+ * reveals a type-only tab by itself (`revealIfOpened`), and the bottom
+ * workbench is the ONLY tree this plugin still holds. That tree's `activePane`
+ * is always a bottom leaf (better-sidebar `state.ts` → `makeDefaultState` /
+ * `sanitizeState`), so the wide-viewport rule below would read as "the landing
+ * pane is the bottom panel" on EVERY open and force the bottom panel open on
+ * every 提问 — on top of the sidebar the native surface just opened. The
+ * `panelOpen` field is gone from that state shape as well (the plugin's own
+ * drawer no longer exists); its absence is the native-era marker, and
+ * `expandPatch` returns null there: no legacy panel is left to heal. The rule
+ * stays exactly as it was for <= 0.18, where both panes and both fields exist.
+ *
  * The module is pure and dependency-free (no node-only imports) so the
  * decision logic is unit-testable; the only "impure" entry point is
  * `expandPanelIfCollapsed`, which reads `window.innerWidth` (guarded) and
@@ -34,7 +47,13 @@ export interface SidebarqaPaneNode {
 
 /** The SidebarState fields this module reads (mirror of better-sidebar's SidebarState). */
 export interface SidebarqaPanelState {
-  panelOpen: boolean
+  /**
+   * Whether the plugin-drawn right panel is open. Present on better-sidebar
+   * <= 0.18 only: from 0.19 the right column belongs to DSH's native Sidebar
+   * and this field left the state shape entirely, so `undefined` here means
+   * "native era" (see the module header).
+   */
+  panelOpen?: boolean
   bottomOpen: boolean
   /** The pane receiving newly opened tabs (ids unique across both trees). */
   activePane: string | null
@@ -69,6 +88,10 @@ export function paneIdsOf(node: SidebarqaPaneNode): string[] {
  * auto-expand rule:
  * - unknown viewport width → null (the runtime skips auto-expand without a
  *   window too);
+ * - native-era state (no `panelOpen`, better-sidebar >= 0.19) → null: the tab
+ *   was just revealed by DSH's native right Sidebar and this plugin owns no
+ *   legacy panel any more (issue #16 — the old rule force-opened the bottom
+ *   workbench on every 提问);
  * - narrow viewport → `panelOpen` is the only lever (merged drawer);
  * - wide viewport → expand the panel hosting the active pane: the bottom
  *   panel when the active pane lives in `bottomSplits`, else the right panel.
@@ -78,6 +101,10 @@ export function expandPatch(
   viewportWidth: number | undefined,
 ): SidebarqaPanelPatch | null {
   if (viewportWidth === undefined) return null
+  // Native era: nothing of ours lives in this state any more. `activePane` is
+  // ALWAYS a bottom leaf there, so the rule below would answer "expand the
+  // bottom panel" for a tab that is not in the bottom panel at all.
+  if (state.panelOpen === undefined) return null
   if (viewportWidth < NARROW_MAX_WIDTH) {
     return state.panelOpen ? null : { panelOpen: true }
   }
@@ -91,8 +118,10 @@ export function expandPatch(
  * Expand the collapsed panel hosting this plugin's tabs, if needed. Safe to
  * call from a tab component's mount effect (or any other point with the
  * store in hand); a no-op when the sidebar state is missing (no active
- * session) or already expanded. Returns true when it expanded. `viewportWidth`
- * is injectable for tests; absent, it falls back to `window.innerWidth`.
+ * session), when it is a native-era state (nothing legacy left to heal), or
+ * when the panel is already expanded. Returns true when it expanded.
+ * `viewportWidth` is injectable for tests; absent, it falls back to
+ * `window.innerWidth`.
  */
 export function expandPanelIfCollapsed(store: SidebarqaSidebarStore, viewportWidth?: number): boolean {
   const state = store.getSnapshot().state

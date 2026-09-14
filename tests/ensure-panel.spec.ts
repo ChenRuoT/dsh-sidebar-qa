@@ -23,6 +23,21 @@ function stateOf(overrides: Partial<SidebarqaPanelState> = {}): SidebarqaPanelSt
   }
 }
 
+/**
+ * A native-era state, exactly what better-sidebar >= 0.19 produces: the
+ * plugin's own right panel is gone (no `panelOpen`), the bottom workbench is
+ * the only tree, and `activePane` always names a bottom leaf
+ * (`makeDefaultState()` / `sanitizeState()`).
+ */
+function nativeStateOf(overrides: Partial<SidebarqaPanelState> = {}): SidebarqaPanelState {
+  return {
+    bottomOpen: false,
+    activePane: 'pane:bottom',
+    bottomSplits: leaf('pane:bottom'),
+    ...overrides,
+  }
+}
+
 describe('paneIdsOf', () => {
   it('returns the leaf id for a leaf', () => {
     expect(paneIdsOf(leaf('pane:1'))).toEqual(['pane:1'])
@@ -83,6 +98,38 @@ describe('expandPatch', () => {
   })
 })
 
+// The regression this block pins down: with better-sidebar >= 0.19 the right
+// column is DSH's native Sidebar (which reveals the tab itself) and the bottom
+// workbench is the plugin's only tree, whose `activePane` is ALWAYS a bottom
+// leaf — so the legacy wide-viewport rule force-opened the bottom panel on
+// every 提问. See dsh-sidebar-qa issue #16.
+describe('expandPatch — native right Sidebar era (better-sidebar >= 0.19)', () => {
+  it('is a no-op on a wide viewport even though activePane lives in the bottom tree', () => {
+    const state = nativeStateOf({ activePane: 'pane:bottom', bottomOpen: false })
+    expect(expandPatch(state, 1200)).toBeNull()
+  })
+
+  it('is a no-op on a wide viewport when the bottom panel is already open', () => {
+    expect(expandPatch(nativeStateOf({ bottomOpen: true }), 1200)).toBeNull()
+  })
+
+  it('is a no-op on a wide viewport when activePane names a nested bottom leaf', () => {
+    const state = nativeStateOf({
+      activePane: 'pane:deep',
+      bottomSplits: split(leaf('pane:a'), split(leaf('pane:deep'), leaf('pane:b'))),
+    })
+    expect(expandPatch(state, 1200)).toBeNull()
+  })
+
+  it('is a no-op on a narrow viewport (the drawer field is gone upstream)', () => {
+    expect(expandPatch(nativeStateOf(), NARROW_MAX_WIDTH - 1)).toBeNull()
+  })
+
+  it('is a no-op on an unknown viewport width', () => {
+    expect(expandPatch(nativeStateOf(), undefined)).toBeNull()
+  })
+})
+
 describe('expandPanelIfCollapsed', () => {
   function mockStore(state: SidebarqaPanelState | undefined): {
     store: SidebarqaSidebarStore
@@ -124,6 +171,13 @@ describe('expandPanelIfCollapsed', () => {
   it('does nothing when the sidebar state is missing (no active session)', () => {
     const { store, reduced } = mockStore(undefined)
     expect(expandPanelIfCollapsed(store, 1200)).toBe(false)
+    expect(reduced).toHaveLength(0)
+  })
+
+  it('does nothing on a native-era state, leaving the bottom panel untouched (issue #16)', () => {
+    const { store, reduced } = mockStore(nativeStateOf({ activePane: 'pane:bottom', bottomOpen: false }))
+    expect(expandPanelIfCollapsed(store, 1200)).toBe(false)
+    // Not just "no bottom patch": the store must not be reduced at all.
     expect(reduced).toHaveLength(0)
   })
 

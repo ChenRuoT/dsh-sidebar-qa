@@ -2,6 +2,15 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### Fixed
+
+- **配合 dsh-better-sidebar 0.19+ 时，点击「提问」会同时展开右侧栏和底部面板（[issue #16](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/16)）**：0.19 起右侧栏交给 DSH 原生 Sidebar（type-only open 由它自己按 `revealIfOpened` 展示），插件只剩底部工作台一棵树，而该树的 `activePane` **恒为底部叶子**（上游 `state.ts` 的 `makeDefaultState` / `sanitizeState`）。于是旧的宽屏判定「`activePane` 在 `bottomSplits` 里 ⇒ 展开底部面板」变成恒真：每次「提问」都会在原生侧栏之外**再强行打开底部面板**，还会连带触发上游「首次展开自动终端」。
+  - `expandPatch` 现在把 `panelOpen` 是否存在于状态里当作**原生时代标记**：该字段缺席（better-sidebar >= 0.19 的 `SidebarState` 已无此字段）时直接返回 `null`，即不再改动任何旧面板状态——原生侧栏自己负责展示，插件已没有可自愈的旧面板。`SidebarqaPanelState.panelOpen` 随之改为可选。
+  - **<= 0.18 行为不变**（两个面板、两个字段都在），[issue #6](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/6) 的自愈照旧生效。
+  - 单测：`tests/ensure-panel.spec.ts` 新增「native right Sidebar era」一组 5 例（宽屏 / 嵌套底部叶 / 窄屏 / 未知宽度全部 no-op），并断言原生状态下 `expandPanelIfCollapsed` **完全不 reduce**——不是「不写 `bottomOpen`」，而是零状态改动。
+
 ## [0.5.0] - 2026-08-29
 
 ### Added
