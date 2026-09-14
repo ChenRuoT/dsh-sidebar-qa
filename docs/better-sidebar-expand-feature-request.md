@@ -4,6 +4,11 @@
 > "外部按钮触发打开 tab 时缺少面板展开通道"的集成缺口。dsh-sidebar-qa
 > 已在消费侧自愈兜底（挂载时 + `onActivate` 桥，见 `src/client/ensure-panel.ts`
 > 与 `src/client/tab-activation.ts`），此 issue 用于推动依赖侧提供正规 API。
+>
+> 更新（dsh-better-sidebar 0.19+）：右侧栏已交还 DSH 原生 Sidebar，type-only
+> open 由它自己展示，本兜底在**原生时代自动失效**（`panelOpen` 缺席即返回
+> `null`，见 [issue #16](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/16)）；
+> ≤ 0.18 的行为不变。若上游后续提供显式的展开能力探测，这段镜像可以整体删除。
 
 ---
 
