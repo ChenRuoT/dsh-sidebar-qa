@@ -12,10 +12,12 @@
  *
  * The client bundle only depends on the shared platform module table entries
  * (react, react-dom, cordis) — everything else is inlined or provided at
- * runtime through the injected cordis services (betterSidebar, sessions,
- * connection, workspaces). A purity gate rejects any @deepseek-ai value
- * import: cross-plugin collaboration goes through cordis services, never
- * value imports (type-only imports are erased and never reach the gate).
+ * runtime through the cordis services this plugin reads (sessions, remote,
+ * workspaces, conversation, and DSH's own sidebar registry / navigation face /
+ * slot registry, which are structurally probed with `ctx.get`). A purity gate
+ * rejects any @deepseek-ai value import: cross-plugin collaboration goes
+ * through cordis services, never value imports (type-only imports are erased
+ * and never reach the gate).
  * CSS Modules compile to hashed class maps and inject <style data-plugin>
  * tags at factory execution. Each artifact registers itself via
  * window.__ModuleLoader__.load({id, factory}) with the CJS closure shape.

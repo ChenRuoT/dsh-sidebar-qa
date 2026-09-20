@@ -8,9 +8,12 @@
 # — the command appends this single `insert` (one plugin row) to the bundle
 # stack, exactly like a manual cordis.patch.yml mount line. No profile edits.
 #
-# dsh-sidebar-qa requires dsh-better-sidebar as a hard peer dependency: the
-# client half declares `inject = ['betterSidebar', ...]`, so it stays
-# inactive (no UI, no behavior) until better-sidebar provides the service.
+# No sidebar dependency is declared: the client half registers into DSH's OWN
+# right sidebar, reaching it through cordis services (`ctx.sidebarRightTabs` /
+# `ctx.sidebarRight`) plus the `sidebar.right.pane.tab` slot, which it probes
+# with `ctx.get()` rather than injecting. Injecting them would park the fiber
+# on a host without the native sidebar, and a parked fiber fails the whole web
+# boot instead of degrading.
 - insert:
     - id: sidebar-qa
       name: 'dsh-sidebar-qa'

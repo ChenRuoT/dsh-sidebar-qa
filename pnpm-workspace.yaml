@@ -1,12 +1,6 @@
 packages:
   - .
 
-# dsh-better-sidebar (required peer) transitively pulls node-pty and
-# protobufjs; this plugin does not use them, so their install scripts are
-# explicitly disabled (silences pnpm's ignored-builds error).
-allowBuilds:
-  node-pty: false
-  protobufjs: false
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.6'
   - '@deepseek-ai/dsh-agent-presets@0.1.0-rc.6'
@@ -66,6 +60,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-user-approval@0.1.0-rc.6'
   - '@deepseek-ai/dsh-user-questions@0.1.0-rc.6'
   - '@deepseek-ai/dsh-workspace@0.1.0-rc.6'
-  - dsh-better-sidebar@0.12.1
   - '@deepseek-ai/dsh-client-ui-primitives@0.1.0-rc.8'
-  - dsh-better-sidebar@0.14.0
