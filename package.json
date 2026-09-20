@@ -1,7 +1,7 @@
 {
   "name": "dsh-sidebar-qa",
   "version": "0.5.0",
-  "description": "DSH web plugin: select conversation text -> ask in a right-side panel -> a dedicated follow-up session (❓<topic>) in the same workspace, without interrupting the main conversation. Thin consumer of dsh-better-sidebar.",
+  "description": "DSH web plugin: select conversation text -> ask in a right-side panel -> a dedicated follow-up session (❓<topic>) in the same workspace, without interrupting the main conversation. Runs on DSH's native right sidebar, with dsh-better-sidebar as the fallback backend on older DSH.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -37,7 +37,8 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-locale"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
       ],
       "platform": "web"
     }
@@ -72,6 +73,9 @@
   },
   "peerDependenciesMeta": {
     "cordis": {
+      "optional": true
+    },
+    "dsh-better-sidebar": {
       "optional": true
     }
   },

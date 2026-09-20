@@ -8,7 +8,13 @@
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import { MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { Context, SidebarqaHistoryEntry, SidebarqaModelSelection, SidebarqaTabComponentProps } from '../context-types.ts'
+import type {
+  Context,
+  SidebarqaHistoryEntry,
+  SidebarqaModelSelection,
+  SidebarqaPendingQuote,
+  SidebarqaTabComponentProps,
+} from '../context-types.ts'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { lastEndSeedIndex, transcriptRowsOf, type TranscriptRow } from './answer.ts'
 import { parseUserMessage } from './injection.ts'
@@ -20,63 +26,73 @@ import { useLocaleRevision } from './use-locale.ts'
 import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
-import { resolveMetaQuote, consumeMetaQuote, resolveAskMode } from './meta-quote.ts'
+import { resolveAskMode } from './meta-quote.ts'
 import { eventsOfRecords, followSession, mergeEntries, sessionAddress } from './session-wire.ts'
-import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-panel.ts'
 import { onTabActivated } from './tab-activation.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
 interface AskPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
   store: SidebarqaStore
-  /** The better-sidebar state store (self-healing panel expansion, issue #6). */
-  bsStore?: SidebarqaSidebarStore
 }
 
 type Phase = 'idle' | 'asking' | 'answering' | 'error'
 
 export function AskPanel(props: AskPanelProps) {
-  const { ctx, scope, visible, store, bsStore } = props
+  const { ctx, scope, visible, store, sidebar } = props
   // Follow the DSH language: t() reads at call time, so this single root
   // re-render re-localizes the whole subtree (keep it free of React.memo).
   const localeRevision = useLocaleRevision()
   const sessionId = scope.sessionId
-  const tabId = props.tab.id
 
-  // An OPEN tab's title is a plain string persisted in better-sidebar's
-  // per-session state, so the registerTab title thunk (live in the + menu)
-  // never re-runs for it. Re-push it whenever the language changes; every
-  // other session's tab heals the moment the user visits it. updateTab
-  // short-circuits an unchanged title, so the mount-time call is free.
+  // Re-push the tab's chip text whenever the language changes. The ACTIVE
+  // backend decides whether it can: better-sidebar persists an open tab's title
+  // as a plain string and must be updated, while the native type's title is
+  // captured at open time and its bridge is a no-op. Either way the panel just
+  // asks.
   useEffect(() => {
-    ctx.betterSidebar.updateTab(tabId, { title: t('askTabTitle') })
-  }, [ctx, tabId, localeRevision])
+    sidebar?.capabilities.setTitle(t('askTabTitle'))
+  }, [sidebar, localeRevision])
 
-  // Self-healing panel expansion (issue #6): better-sidebar only auto-expands
-  // a collapsed panel for content opens, so the 追问 tab opened by a type-only
-  // openTab used to land invisible. Two triggers:
-  // - MOUNT: a freshly created tab landed in a possibly collapsed panel (the
-  //   tab component is rendered even while the panel is collapsed — `visible`
-  //   only pauses live views);
+  // Self-healing panel expansion (issue #6): a type-only openTab (the 提问
+  // flow) lands the tab inside a possibly collapsed panel. Two triggers:
+  // - MOUNT: a freshly created tab landed in that panel (the tab component is
+  //   rendered even while collapsed — `visible` only pauses live views);
   // - RE-ACTIVATION: the user collapsed the panel, then clicked 提问 again —
-  //   openTab merely re-focuses the existing tab (no remount), so only the
+  //   the open merely re-focuses the existing tab (no remount), so only the
   //   activation signal (fired even for an already-active tab) reaches us.
-  // A plain manual collapse never fires onActivate, so a deliberate layout is
-  // never fought.
+  // Only better-sidebar needs the help: native `openTab` expands the column as
+  // part of placing the tab, and its bridge is a no-op.
   useEffect(() => {
-    if (bsStore === undefined) return
-    expandPanelIfCollapsed(bsStore)
-    return onTabActivated(() => expandPanelIfCollapsed(bsStore))
-  }, [bsStore])
+    if (sidebar === undefined) return
+    const { capabilities } = sidebar
+    capabilities.healVisibility()
+    return onTabActivated(() => capabilities.healVisibility())
+  }, [sidebar])
 
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
-  // Cross-plugin seam: a quote handed over through `openTab({ meta: { quote } })`
+  // Cross-plugin seam: a quote an EXTERNAL plugin handed over with the open
   // (e.g. dsh-sidebar-preview-select's preview selection) takes precedence over
-  // the store's pending quote; the store path stays the popover's channel.
-  const metaQuote = resolveMetaQuote(props.tab.meta)
+  // the store's pending quote, which is this plugin's own popover channel. The
+  // adapter owns the backend-specific payload — better-sidebar's tab `meta`,
+  // the native `navigation.params` — and hands the quote over exactly once, so
+  // this component reads it here and then owns its lifetime.
+  const [openQuote, setOpenQuote] = useState<SidebarqaPendingQuote | null>(null)
+  const [quoteConsumed, setQuoteConsumed] = useState(false)
+  const bridge = sidebar?.capabilities
+  const takeQuote = bridge?.takeQuote
+  const revision = sidebar?.revision
+  useEffect(() => {
+    if (takeQuote === undefined) return
+    // Re-arming on activation is what makes a SECOND external open into the
+    // same tab deliver its new quote: only the newest open's payload is read.
+    setQuoteConsumed(false)
+    setOpenQuote(takeQuote())
+  }, [takeQuote, revision])
+  const metaQuote = quoteConsumed ? null : openQuote
   const pendingQuote = metaQuote ?? snapshot.pendingBySession[sessionId] ?? null
   const children = snapshot.parentToChildren[sessionId] ?? []
 
@@ -359,11 +375,11 @@ export function AskPanel(props: AskPanelProps) {
   // button returns to the parked quote (see resolveAskMode).
   const mode = resolveAskMode(pendingQuote !== null, activeChildId)
 
-  // Consume the meta-carried quote channel once (send or cancel both count).
+  // Consume the cross-plugin quote channel once (send or cancel both count).
+  // The adapter already marked the payload itself consumed, so this only stops
+  // the PANEL from keeping it in view mode.
   const consumeMeta = (): void => {
-    if (metaQuote !== null) {
-      ctx.betterSidebar.updateTab(props.tab.id, { meta: consumeMetaQuote(props.tab.meta) })
-    }
+    if (metaQuote !== null) setQuoteConsumed(true)
   }
 
   // Cancel a parked quote: clear both channels and return to the latest

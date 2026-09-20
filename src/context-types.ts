@@ -21,6 +21,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from 'cordis'
 import type { SidebarqaSidebarStore } from './client/ensure-panel.ts'
+import type { SidebarPortOpen } from './client/sidebar-port.ts'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Host faces
@@ -198,15 +199,102 @@ export interface SidebarqaTabDescriptor {
   component: (props: SidebarqaTabComponentProps) => unknown
 }
 
-/** Props every tab component receives (mirror of better-sidebar TabComponentProps). */
+/**
+ * What the panel body asks of WHICHEVER sidebar backend hosts it.
+ *
+ * The panels used to reach for `ctx.betterSidebar` directly (title / meta
+ * updates) and for better-sidebar's own state store (issue #6 panel healing),
+ * which tied them to one backend. The adapter for each backend
+ * (`src/client/sidebar-better-sidebar.ts`, `src/client/sidebar-native.ts`)
+ * supplies this bridge instead, so a panel never branches on the backend.
+ *
+ * The three members are exactly the places the two backends differ; everything
+ * else a panel needs (its identity, its scope, the pending quote) is already
+ * backend-neutral in {@link SidebarqaTabComponentProps}.
+ */
+export interface SidebarqaSidebarBridge {
+  /**
+   * Re-push this tab's display title in the current language.
+   *
+   * better-sidebar stores an OPEN tab's title as a plain string, so the
+   * registerTab title thunk never re-runs for it and a language change must
+   * re-push. The native backend captures a type's title into the layout record
+   * at open time and exposes no per-tab retitle, so its bridge is a no-op — the
+   * tab keeps the text it was opened with.
+   */
+  setTitle(title: string): void
+  /**
+   * Read this tab's cross-plugin quote and mark it consumed, so a later focus
+   * of the same tab does not resurface a stale quote.
+   *
+   * better-sidebar carries it on the tab's `meta` and clears it with
+   * `updateTab`. The native backend carries it in `navigation.params` and has
+   * no per-tab update at all, so its bridge remembers what it already handed
+   * out. Both return the same validated shape.
+   * @returns the quote, or null when absent, already consumed, or malformed.
+   */
+  takeQuote(): SidebarqaPendingQuote | null
+  /**
+   * Heal a collapsed host column (issue #6).
+   *
+   * A type-only open lands the tab inside an invisible collapsed panel, so the
+   * mounted panel must expand it. better-sidebar exposes no expansion method,
+   * so its bridge patches better-sidebar's own state store; the native
+   * `openTab` expands as part of placing the tab, so its bridge reads the
+   * reported presentation and does nothing.
+   *
+   * Called on mount (a freshly opened tab) and on re-activation (the panel was
+   * collapsed since this tab's last focus — an open only re-focuses, it never
+   * remounts).
+   */
+  healVisibility(): void
+  /**
+   * Open (or focus) this plugin's 追问记录 tab for `scope`.
+   *
+   * The 追问记录 tree offers a "跳转" action: switch the active conversation,
+   * then land the history tab in that session's sidebar so the user keeps the
+   * tree they were just reading. The panels cannot do that through the cordis
+   * context (they do not know which backend is active), so the adapter offers
+   * it here.
+   * @param scope - the session whose sidebar receives the tab.
+   */
+  openHistory(scope: { sessionId: string }): void
+}
+
+/** The cross-plugin quote shape (mirror of this plugin's `PendingQuote`). */
+export interface SidebarqaPendingQuote {
+  text: string
+  messageId?: string
+  role?: string
+}
+
+/** Props every tab component receives (the port's neutral form). */
 export interface SidebarqaTabComponentProps {
   ctx: Context
   scope: { sessionId: string; cwd?: string }
-  tab: { id: string; type: string; title: string; path?: string; diff?: unknown; meta?: unknown }
+  /**
+   * The tab's identity. Only `id` is carried: the panels need nothing else, and
+   * the port deliberately does not expose backend-specific tab fields (a
+   * better-sidebar `meta` blob or a native navigation record) to the body.
+   */
+  tab: { id: string }
   visible: boolean
   /** The better-sidebar state store (its own, NOT this plugin's localStorage store).
    *  Present at runtime; typed optional so host-half compilation never needs it. */
   store?: SidebarqaSidebarStore
+  /**
+   * The active backend's occurrence: this tab's identity, its activation
+   * revision, and the backend's capabilities (the `SidebarPortOpen` of
+   * `src/client/sidebar-port.ts`, imported type-only — the port module imports
+   * this file for its service faces, and a type-only import keeps that cycle
+   * out of the emitted bundle).
+   *
+   * OPTIONAL at the type level, and every panel guards it: a panel rendered
+   * without one must still mount and render (it only loses title refresh, the
+   * cross-plugin quote, panel healing, and its own tab opens). That guard is
+   * what keeps a half-composed deployment from crashing the whole sidebar.
+   */
+  sidebar?: SidebarPortOpen
 }
 
 /** The betterSidebar registry service published as `ctx.betterSidebar`. */
@@ -243,12 +331,29 @@ export interface SidebarqaSessionSummary {
   blank: boolean
   /** Epoch ms of the session's last activity (the left panel's "最近访问" source). */
   updatedAt?: number
+  /**
+   * Local ownership counts by consumer source; `mainView` counts the main pane's
+   * reference to this session. This is what identifies the CURRENT session — see
+   * `src/client/current-session.ts`. An absent key means zero.
+   */
+  retainedBy?: Readonly<Partial<Record<string, number>>>
 }
 
-/** The client session list snapshot this plugin subscribes to. */
+/**
+ * The client session list snapshot this plugin subscribes to.
+ *
+ * Mirrors `SessionListState` from
+ * `api/session-controller/src/client/sessions/service.ts:53`. It deliberately has
+ * NO `current` field: an earlier revision of this mirror invented one, which both
+ * returned `undefined` at runtime AND hid the mistake from the compiler, because
+ * the mirror was the only declaration in scope.
+ */
 export interface SidebarqaSessionListSnapshot {
-  current: string | undefined
+  /** Host-list order. */
+  ids?: readonly string[]
   byId: Record<string, SidebarqaSessionSummary>
+  /** Arrival lifecycle: `empty` together with `ready` means "truly no sessions". */
+  phase?: string
 }
 
 /** The client sessions service face (list feed + open + scope). */
@@ -605,6 +710,205 @@ export interface SidebarqaConversationService {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// DSH native right sidebar (ui-sidebar-right)
+//
+// The second sidebar backend. DSH ≥ 0.1.5-alpha.1 ships its own dockable right
+// column (`@deepseek-ai/dsh-client-ui-sidebar-right`) whose extension points are
+// two injected cordis services — `sidebarRightTabs` (the type registry) and
+// `sidebarRight` (navigation) — plus a render seat declared on DSH's own slot
+// registry. A tab type registers in TWO stages under one implementation `id`:
+// the definition into `sidebarRightTabs`, the body into the keyed
+// `sidebar.right.pane.tab` slot.
+//
+// These are structural mirrors only. The client bundle must NOT value-import
+// `@deepseek-ai/dsh-client-ui-sidebar-right/client` (client-bundle purity gate):
+// its `/client` export carries runtime code, and DSH policy forbids a feature
+// plugin from requesting another feature plugin's values. The services are
+// reached through `ctx.get()` exactly like `conversation`.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One registered tab type's static face (mirror of ui-sidebar-right's
+ * `SidebarRightTabDefinition`). Only the fields this plugin sets are restated.
+ */
+export interface SidebarqaSidebarRightTabDefinition {
+  /** Implementation identity; unique across every registration and the key the body registers under. */
+  id: string
+  /** Type discriminator: what `openTab` names. */
+  kind: string
+  /**
+   * Resource-address globs this type recognizes; omitted for a PAGE type, which
+   * is opened by kind and recognizes no address. This plugin registers a page
+   * type — its content (`ask` / `history`) is not addressable.
+   */
+  patterns?: readonly string[]
+  /**
+   * Priority band. `extension` (the default, and correct for a third-party
+   * type) outranks every viewer DSH ships and may take over a `builtin` kind.
+   */
+  priority?: 'extension' | 'builtin' | 'fallback'
+  /** Each open by kind creates independent content; omission keeps one page per kind in each pane. */
+  multiple?: boolean
+  /** The tab chip's initial text, captured into the layout record at open time. */
+  title: (address: string) => string
+  /**
+   * Entry boxes for the host column's own landing page (the guide). This is what
+   * makes a type discoverable by hand: the native strip's `+` control only
+   * re-opens the guide page, and the guide lists registered types through
+   * exactly these entries.
+   */
+  guide?: readonly SidebarqaSidebarRightGuideEntry[]
+}
+
+/**
+ * One guide-page entry (mirror of ui-sidebar-right's `SidebarRightGuideEntry`).
+ * Copy is thunked so a language change needs no re-registration.
+ */
+export interface SidebarqaSidebarRightGuideEntry {
+  /** Stable entry identity within its provider. */
+  id: string
+  /** Ascending position among every registered type's entries. */
+  order: number
+  /** The capsule's title, read in the current language. */
+  title: () => string
+  /** One line under the title on what picking the capsule opens. */
+  description?: () => string
+}
+
+/**
+ * Stage one of native tab-type registration (`ctx.sidebarRightTabs`; mirror of
+ * ui-sidebar-right's `SidebarRightTabRegistry`). Only the members this plugin
+ * calls are restated.
+ */
+export interface SidebarqaSidebarRightTabsService {
+  /**
+   * Register one tab type for the caller's lifetime.
+   * @param definition - the contributed type.
+   * @returns idempotent disposer.
+   * @throws when the id is taken or the kind cannot coexist.
+   */
+  register(definition: SidebarqaSidebarRightTabDefinition): () => void
+}
+
+/**
+ * The native right column's placement options (mirror of
+ * `SidebarRightPlacement` / `SidebarRightOpenTabOptions`).
+ */
+export interface SidebarqaSidebarRightOpenOptions {
+  /** Land a new tab in this pane instead. */
+  paneId?: string
+  /** Prefer a new pane for new content; use the target pane when splitting is unavailable. */
+  preferNewPane?: boolean
+  /** Resource tabs reveal existing content by default; `false` permits duplicates. */
+  revealIfOpened?: boolean
+  /**
+   * The kind's navigation parameters, delivered to the body as
+   * `navigation.params`. Not validated at run time (caller and body meet at a
+   * typed same-process boundary), which is what carries a pending quote.
+   */
+  params?: unknown
+}
+
+/**
+ * The native right column's outward navigation face (`ctx.sidebarRight`; mirror
+ * of `ISidebarRight`). Only the members this plugin calls are restated.
+ *
+ * Every write needs a mounted session surface: a call with no session on screen
+ * throws `sidebarRight: no session surface is mounted`.
+ */
+export interface SidebarqaSidebarRightService {
+  /**
+   * Open a page type by kind: the registered type, at the address this package
+   * records pages under. Opening the same kind again reveals the existing tab.
+   * @param kind - the page type's kind.
+   * @param options - placement and the kind's navigation parameters.
+   */
+  openTab(kind: string, options?: SidebarqaSidebarRightOpenOptions): void
+  /**
+   * Focus a tab and the pane holding it, raising a floating one.
+   * @param tabId - the tab; one that does not exist is left alone.
+   */
+  focus(tabId: string): void
+  /** Whether the column is currently showing its panel. */
+  isExpanded(): boolean
+}
+
+/**
+ * One entry in a tab's navigation record, as delivered through
+ * `navigation.params` (mirror of `SidebarRightNavigationParams`).
+ */
+export interface SidebarqaNavQuote {
+  /** The quote text the opener captured. */
+  quote?: string
+  /** Message identity the quote came from, when the opener knows it. */
+  messageId?: string
+  /** Author role of the quoted message. */
+  role?: string
+}
+
+/**
+ * The slot registry DSH's UI is built on (`@deepseek-ai/dsh-client-ui-slots`,
+ * a PLATFORM_MODULES seed word, so this face is always available to a dynamic
+ * client bundle). The native sidebar seat `sidebar.right.pane.tab` is declared
+ * on it by `ui-sidebar-right`; this plugin contributes its bodies through it.
+ */
+export interface SidebarqaSlotsService {
+  /**
+   * Run `contribute` once the named slot exists, and dispose its result when
+   * the slot goes away (or this fiber unloads). The registration must live in
+   * the callback's scope, which is why every contribution is wrapped here.
+   * @param name - declared slot name.
+   * @param contribute - registers the component; returns its disposer.
+   * @returns disposer.
+   */
+  inject(name: string, contribute: () => () => void): () => void
+  /**
+   * Contribute one component into a slot.
+   *
+   * For a keyed seat, `options.key` is the dispatch identity: the native
+   * sidebar renders a tab by looking the body up under the tab type's
+   * implementation `id`, NOT under its `kind`.
+   * @param options - the slot name plus the seat's identity/key.
+   * @param component - the component to render.
+   * @returns disposer.
+   */
+  register(options: { name: string; key?: string }, component: unknown): () => void
+  /**
+   * Whether a slot is currently declared. Lets a contribution be offered only
+   * when the consuming surface is actually present.
+   * @param name - slot name.
+   * @returns `true` once some plugin declared it.
+   */
+  has(name: string): boolean
+}
+
+/**
+ * What a native tab body's `hooks.tabInfo` reader returns (mirror of
+ * `SidebarRightTabInfo`). Only the fields this plugin reads are restated.
+ */
+export interface SidebarqaSidebarRightTabInfo {
+  readonly sidebar: {
+    /** Whether the column shows its panel (`false` = collapsed to the rail). */
+    readonly expanded: boolean
+    readonly fullscreen: boolean
+  }
+  readonly panel: { readonly id: string }
+  readonly tab: {
+    readonly id: string
+    /** Docked bodies need an expanded sidebar and an active tab; floats stay visible. */
+    readonly visible: boolean
+    readonly navigation: {
+      /** The address opened; for a page tab this is the kind's recorded page address. */
+      readonly address: string
+      /** Whatever the opener passed; a pending quote rides here. */
+      readonly params: unknown
+      /** Incremented on every navigation to this tab, even when `params` is unchanged. */
+      readonly revision: number
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Context augmentation (dual cordis scope)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -653,6 +957,32 @@ declare module 'cordis' {
      */
     conversation: SidebarqaConversationService
     /**
+     * DSH's native right-sidebar slot registry (`@deepseek-ai/dsh-client-ui-slots`,
+     * a PLATFORM_MODULES seed word). Client side only; a deployment that ships
+     * DSH's own sidebar always has it. Read with `ctx.get('slots')` rather than
+     * listed in `inject`, because the whole native backend is optional — see
+     * `src/client/sidebar-port.ts`. Declaring it here is what lets `ctx.get`
+     * return the typed face instead of `any`.
+     */
+    slots: SidebarqaSlotsService
+    /**
+     * DSH's native right-sidebar tab-type registry
+     * (`@deepseek-ai/dsh-client-ui-sidebar-right`, DSH ≥ 0.1.5-alpha.1), published
+     * by `ctx.reflect.provide('sidebarRightTabs', …)`. ABSENT on a deployment
+     * without the native sidebar, so it is optional in the strict sense: the
+     * client half probes for it with `ctx.get('sidebarRightTabs')` and falls back
+     * to dsh-better-sidebar, or stays inactive when neither backend exists. See
+     * `src/client/sidebar-port.ts`.
+     */
+    sidebarRightTabs: SidebarqaSidebarRightTabsService
+    /**
+     * DSH's native right-sidebar navigation face, published by
+     * `ctx.reflect.provide('sidebarRight', …)`. Optional in the same sense as
+     * `sidebarRightTabs`; the two always appear together. See
+     * `src/client/sidebar-port.ts`.
+     */
+    sidebarRight: SidebarqaSidebarRightService
+    /**
      * Subscribe to the session append feed (mirror of the cordis event API):
      * the listener receives every appended session event with the LIVE
      * Session instance that appended it. Returns the disposer.
@@ -667,3 +997,4 @@ declare module 'cordis' {
 }
 
 export type { Context }
+export type { SidebarqaSidebarStore } from './client/ensure-panel.ts'

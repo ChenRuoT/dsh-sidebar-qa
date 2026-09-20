@@ -48,6 +48,8 @@ export const zh = {
   askComposerPlaceholder: '继续追问…（Enter 发送，Shift+Enter 换行）',
   askSend: '发送',
   askGenerating: '生成中…',
+  /** Native sidebar guide entry: what the 追问 capsule opens. */
+  askGuideDesc: '在当前会话旁开一条独立追问，主对话不打断。',
   askSeedDivider: '↑ 上方为主对话历史',
   askSeedDividerMore: '↑ 上方为主对话历史，继续向上滚动加载',
   askDegradedToCompressed: '主对话正在回答中，已改用「压缩」模式，稍后可在主对话空闲时再试「全量继承」。',
@@ -62,6 +64,8 @@ export const zh = {
   histRemoveTitle: '从追问记录移除（不影响 DSH 侧会话）',
   histExpand: '展开追问',
   histCollapse: '折叠追问',
+  /** Native sidebar guide entry: what the 追问记录 capsule opens. */
+  histGuideDesc: '按会话分层查看全部（含嵌套）追问。',
 
   // ── Model seat (ModelSelect + model-seat) ─────────────────────────────────
   modelFallbackLabel: '模型',
@@ -150,6 +154,7 @@ export const en: Record<CopyKey, string> = {
   askComposerPlaceholder: 'Ask a follow-up… (Enter to send, Shift+Enter for a new line)',
   askSend: 'Send',
   askGenerating: 'Generating…',
+  askGuideDesc: 'Ask a follow-up beside this conversation without interrupting it.',
   askSeedDivider: '↑ Inherited main-conversation history',
   askSeedDividerMore: '↑ Inherited main-conversation history — scroll up to load more',
   askDegradedToCompressed: 'The main conversation is still answering, so "Compressed" was used instead. Try "Inherit full history" again once it is idle.',
@@ -163,6 +168,7 @@ export const en: Record<CopyKey, string> = {
   histRemoveTitle: 'Remove from the follow-up records (the DSH session itself is untouched)',
   histExpand: 'Expand follow-ups',
   histCollapse: 'Collapse follow-ups',
+  histGuideDesc: 'Every follow-up (nested included), grouped by conversation.',
 
   modelFallbackLabel: 'Model',
   modelTrigger: 'Model: {label}',

@@ -12,11 +12,11 @@
  * time to its left — the same compact relative label ("刚刚"/"5分钟"/…) the
  * DSH left (workspace browser) panel uses.
  */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarqaSessionListSnapshot, SidebarqaTabComponentProps } from '../context-types.ts'
 import type { SidebarqaStore } from './store.ts'
-import { expandPanelIfCollapsed, type SidebarqaSidebarStore } from './ensure-panel.ts'
+import { resolveCurrentSessionId } from './current-session.ts'
 import { onTabActivated } from './tab-activation.ts'
 import { filterHistoryToWorkspace, rootsOf, sessionStatus, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
 import { timeLabel } from './history-time.ts'
@@ -26,14 +26,12 @@ import css from './history-panel.module.css'
 
 interface HistoryPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
   store: SidebarqaStore
-  /** The better-sidebar state store (self-healing panel expansion, issue #6). */
-  bsStore?: SidebarqaSidebarStore
 }
 
 /** How often the relative-time labels refresh while the tab is visible. */
 const NOW_TICK_MS = 60_000
 
-export function HistoryPanel({ ctx, store, scope, visible, bsStore, tab }: HistoryPanelProps) {
+export function HistoryPanel({ ctx, store, scope, visible, sidebar, tab }: HistoryPanelProps) {
   // Follow the DSH language: t() reads at call time, so this single root
   // re-render re-localizes the whole tree (keep it free of React.memo).
   const localeRevision = useLocaleRevision()
@@ -41,27 +39,33 @@ export function HistoryPanel({ ctx, store, scope, visible, bsStore, tab }: Histo
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
-  const tabId = tab.id
 
-  // An OPEN tab's title is a plain string persisted in better-sidebar's
-  // per-session state, so the registerTab title thunk (live in the + menu)
-  // never re-runs for it. Re-push it whenever the language changes; every
-  // other session's tab heals the moment the user visits it. updateTab
-  // short-circuits an unchanged title, so the mount-time call is free.
+  // Re-push the tab's chip text whenever the language changes; the active
+  // backend decides whether it can (see AskPanel for the full note).
   useEffect(() => {
-    ctx.betterSidebar.updateTab(tabId, { title: t('histTabTitle') })
-  }, [ctx, tabId, localeRevision])
+    sidebar?.capabilities.setTitle(t('histTabTitle'))
+  }, [sidebar, localeRevision])
+
+  // Land (or focus) this plugin's history tab in a session's sidebar. Stable
+  // across renders so the tree's nodes do not re-render on every tick; `sidebar`
+  // is the occurrence handed down once per activation.
+  const openHistory = useCallback(
+    (sessionId: string) => { sidebar?.capabilities.openHistory({ sessionId }) },
+    [sidebar],
+  )
 
   // Self-healing panel expansion (issue #6): the 追问记录 tab is also opened
   // by a type-only openTab (+ menu / 跳转), which never auto-expands a
   // collapsed panel. Heal on mount (fresh tab) and on re-activation (the
-  // panel was collapsed since the tab's last focus — openTab only re-focuses,
-  // never remounts).
+  // panel was collapsed since the tab's last focus — an open only re-focuses,
+  // never remounts). Only better-sidebar needs the help; the native bridge is
+  // a no-op because `openTab` expands the column as part of placing the tab.
   useEffect(() => {
-    if (bsStore === undefined) return
-    expandPanelIfCollapsed(bsStore)
-    return onTabActivated(() => expandPanelIfCollapsed(bsStore))
-  }, [bsStore])
+    if (sidebar === undefined) return
+    const { capabilities } = sidebar
+    capabilities.healVisibility()
+    return onTabActivated(() => capabilities.healVisibility())
+  }, [sidebar])
 
   // The workspace feed (session↔workspace membership is not in the session
   // list; the workspaces list is the authoritative projection).
@@ -87,7 +91,7 @@ export function HistoryPanel({ ctx, store, scope, visible, bsStore, tab }: Histo
   // the DSH runtime's startSession). When no workspace can be resolved (no
   // active session, or it is still ungrouped), fall back to the unfiltered
   // tree so records are never hidden by an undeterminable scope.
-  const currentSessionId = scope.sessionId !== '' ? scope.sessionId : sessionList.current
+  const currentSessionId = scope.sessionId !== '' ? scope.sessionId : resolveCurrentSessionId(sessionList)
   const currentWorkspace = currentSessionId === undefined
     ? undefined
     : workspaceOwningSession(workspaceList.items, currentSessionId)
@@ -128,6 +132,7 @@ export function HistoryPanel({ ctx, store, scope, visible, bsStore, tab }: Histo
           now={now}
           parentToChildren={parentToChildren}
           archivedIds={archivedIds}
+          openHistory={openHistory}
         />
       ))}
     </div>
@@ -144,8 +149,14 @@ function TreeNode(props: {
   now: number
   parentToChildren: Record<string, string[]>
   archivedIds: ReadonlySet<string>
+  /**
+   * Land (or focus) this plugin's history tab in the target session's sidebar.
+   * Threaded down from the panel because the backend is only reachable through
+   * the occurrence the panel holds.
+   */
+  openHistory: (sessionId: string) => void
 }) {
-  const { ctx, id, depth, store, sessionList, now, parentToChildren, archivedIds } = props
+  const { ctx, id, depth, store, sessionList, now, parentToChildren, archivedIds, openHistory } = props
   const children = parentToChildren[id] ?? []
   const isRoot = depth === 0
   const hasChildren = children.length > 0
@@ -175,8 +186,15 @@ function TreeNode(props: {
           type="button"
           className={stale ? `${css.rowOpen} ${css.rowOpenDisabled}` : css.rowOpen}
           disabled={stale}
-          onClick={() => { openConversation(ctx, id, sessionList.byId[id]?.cwd) }}
-        >
+          onClick={() => {
+            ctx.sessions.open(id)
+            // Keep the tree the user was reading: the port lands (or focuses)
+            // this plugin's history tab in the target session's sidebar. The
+            // better-sidebar backend can target a session that is not on
+            // screen; the native backend opens in the surface now on screen,
+            // which after `sessions.open` is the same session.
+            openHistory(id)
+          }}        >
           {isRoot && <span className={css.dot} />}
           <span className={isRoot ? css.mainLabel : css.sideLabel}>
             {titleOf(ctx, id)}
@@ -224,6 +242,7 @@ function TreeNode(props: {
               now={now}
               parentToChildren={parentToChildren}
               archivedIds={archivedIds}
+              openHistory={openHistory}
             />
           ))}
         </div>
@@ -245,17 +264,8 @@ function titleOf(ctx: Context, id: string): string {
 }
 
 /**
- * Jump into a conversation from the 追问记录 tree, keeping the 追问记录 tab
- * open in the TARGET session's sidebar state: `sessions.open` switches the
- * active conversation, then `betterSidebar.openTab(seed, scope)` lands the
- * tab in that session's state — focusing it if already open, creating it if
- * not — regardless of what tabs the target session had before (better-sidebar
- * v0.12+ targeted open; the tab is `single: true`, so the dedupe focuses).
+ * Jump into a conversation from the 追问记录 tree. `sessions.open` switches the
+ * active conversation; landing this plugin's history tab in the target
+ * session's sidebar is the PORT's job (see the row's click handler), because
+ * only the adapter knows how its backend addresses a session.
  */
-function openConversation(ctx: Context, sessionId: string, cwd: string | undefined): void {
-  ctx.sessions.open(sessionId)
-  ctx.betterSidebar.openTab(
-    { type: 'dsh-sidebar-qa:history' },
-    { sessionId, ...(cwd === undefined ? {} : { cwd }) },
-  )
-}
