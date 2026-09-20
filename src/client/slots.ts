@@ -7,8 +7,8 @@
  * fails the ENTIRE web boot (`boot-client.ts`) rather than skipping this plugin.
  *
  * Two modules need it for different seats — `sidebar-native.ts` for the right
- * column's tab bodies, `settings-section.tsx` for DSH's own settings page — so the
- * probe lives here rather than in either of them.
+ * column's tab bodies, `settings-slot.ts` for DSH's own settings page — so the probe
+ * lives here rather than in either of them.
  */
 import type { Context, SidebarqaSlotsService } from '../context-types.ts'
 

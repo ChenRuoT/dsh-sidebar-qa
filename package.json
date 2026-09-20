@@ -19,10 +19,6 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
-    "./client/service": {
-      "types": "./lib/types/client/service.d.ts",
-      "default": "./lib/client.js"
-    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
