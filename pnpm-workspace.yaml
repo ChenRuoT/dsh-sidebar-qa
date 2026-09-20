@@ -1,6 +1,14 @@
 packages:
   - .
 
+# The pinned ui-primitives type stub (see package.json devDependencies) peers on
+# `@deepseek-ai/cordis@^4.0.2`, a copy this package never links: the web shell
+# provides cordis through the frozen platform module table, so the older resolved
+# row is declared ALLOWED instead of being pulled into the dependency graph.
+peerDependencyRules:
+  allowedVersions:
+    '@deepseek-ai/cordis': '4.0.1'
+
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.6'
   - '@deepseek-ai/dsh-agent-presets@0.1.0-rc.6'

@@ -29,20 +29,25 @@
 - **⚙️ Configurable**: summary/answer model channels, reasoning effort, context windows and budgets — the entry point is **DSH Settings → the “Follow-up” page in the left nav** (the panel registers as a `settings.section`); the `sidebarqa` namespace in `settings.yaml` still works and writes the same configuration
 - **🌏 Bilingual (zh / en)**: UI copy and model-facing prompts follow the DSH language setting and switch live (no reload, **including the chip of an already-open tab**); **the answer language follows the content you ask about**, not the interface language
 
-> 🔌 **Registers into DSH's OWN right sidebar only**: DSH **0.1.5-alpha.1 and newer** ships that sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`), and this plugin registers into it directly (the `ctx.sidebarRightTabs` / `ctx.sidebarRight` services plus the `sidebar.right.pane.tab` and `sidebar.right.pane.tab.title` seats) — **with no extra dependency**. `dsh-better-sidebar` support was removed entirely in 0.6.0. On an older DSH the plugin **still activates**: the selection popover and “Add to chat” keep working, only the sidebar tabs are not registered (and one `console.warn` is logged).
+> 🔌 **Registers into DSH's OWN right sidebar only**: DSH **0.1.5-alpha.1 and newer** ships that sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`), and this plugin registers into it directly (the `ctx.sidebarRightTabs` / `ctx.sidebarRight` services plus the `sidebar.right.pane.tab` and `sidebar.right.pane.tab.title` seats) — **with no extra dependency**. `dsh-better-sidebar` support was removed entirely in 1.0.0. On an older DSH the plugin **still activates**: the selection popover and “Add to chat” keep working, only the sidebar tabs are not registered (and one `console.warn` is logged).
 
 ## 📦 Changelog
 
-### 0.6.0 - 2026-09-XX
+### 1.0.0 - 2026-09-20
 
-- **`dsh-better-sidebar` support removed — DSH's own right sidebar is now the only backend**: there is no second backend and no extra dependency left; the `dsh-better-sidebar` peer dependency and its `peerDependenciesMeta` entry are gone (after `pnpm install`, `node-pty` / `protobufjs` disappear from the lockfile too).
+**The first 1.x: DSH's own right sidebar is the only backend, with zero extra dependencies.** The breaking change is the **removal of the `dsh-better-sidebar` backend** (below), which is why this is a major release: installing `dsh-sidebar-qa` is now all it takes.
+
+- **`dsh-better-sidebar` support removed (breaking)**: there is no second backend and no extra dependency left; the `dsh-better-sidebar` peer dependency and its `peerDependenciesMeta` entry are gone (after `pnpm install`, `node-pty` / `protobufjs` disappear from the lockfile too).
   - DSH ≥ `0.1.5-alpha.1`: registers into DSH's own right sidebar. Docking, splitting, floating and fullscreen are DSH's business, so the plugin no longer expands the column by hand.
   - Older DSH: the plugin **still activates** — the selection popover and “Add to chat” work, only the sidebar tabs are missing (with one `console.warn`).
   - **An already-open tab's chip now follows a language switch**: the plugin registers a live title component into the `sidebar.right.pane.tab.title` seat (the chip used to freeze at the language it was opened in).
   - **New modules**: `src/client/ask-mode.ts` (panel view mode) and `src/client/show-session.ts` (put the target session on screen through `ctx.uiWorkspace.openSession`).
+- **Both tab glyphs are back**: the guide (`+`) capsule and the tab chip now show the host's ❓ / queue icons again — the native port had dropped the `icon` field entirely, so the capsules were drawing the host's cube placeholder.
+- **Archived / deleted follow-ups no longer take the panel down**: those switcher rows are greyed out, labelled and unclickable, and the default selection is “the newest follow-up that can actually be read”; if the follow-up being read is archived under you, the panel says so (with a “Remove” action) and disables the composer. Clicking one used to strand the panel on a session it could not read (an eternal “Generating…”).
+- **The panel can no longer go permanently blank**: both known triggers are fixed (a renamed `MarkdownText` copy prop made any message with a **code block** throw while rendering; any render error used to retire the tab body for **every session on the page**) and the plugin now carries its own error boundary — a crash becomes a readable, retryable strip and the tab itself survives.
 - **A batch of “type mirror invented an upstream member” failures fixed**: “Add to chat” never found its target session, the records-tree jump threw a `TypeError`, LAN access to `/sidebarqa/api` was always 403, reading an `assistant-stream` frame crashed, and more. See [CHANGELOG](./CHANGELOG.md).
 - **The config panel now lives in DSH's own settings page**: `ConfigPanel` registers as a `settings.section` (`src/client/settings-slot.ts` for the registration, `src/client/settings-section.tsx` for the page), so the settings nav gains a **whole “Follow-up” page** (after every page DSH ships) and **the gear popup is gone**. Not `plugins.item`: that seat's contract reserves it for the host-plane configuration pages `ui-settings-plugins` ships, and it is unavailable whenever the deployment has no managed profile, which would take the config entry down with it.
-- **Both halves changed** — host-side fixes to the `/sidebarqa/api` trust fence and `package.json`'s peer dependencies: run `pnpm install` again and restart `dsh web` after upgrading.
+- **Both halves changed** — host-side fixes to the `/sidebarqa/api` trust fence, and dependency changes (the `dsh-better-sidebar` peer is gone; the `@deepseek-ai/dsh-client-ui-primitives` type stub is pinned to `0.1.6-alpha.2`): run `pnpm install` again and restart `dsh web` after upgrading.
 
 ### 0.5.0 - 2026-08-29
 

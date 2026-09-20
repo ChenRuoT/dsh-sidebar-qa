@@ -62,7 +62,9 @@
  * gate at build time AND the module table at runtime. Its service faces live in
  * `../context-types.ts`.
  */
-import { useMemo } from 'react'
+import { createElement, Fragment, useMemo } from 'react'
+import type { ComponentType } from 'react'
+import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   Context,
   SidebarqaPendingQuote,
@@ -74,9 +76,11 @@ import type {
   SidebarqaTabOccurrence,
 } from '../context-types.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
+import { containPanel } from './panel-boundary.tsx'
 import { showSessionFirst } from './show-session.ts'
 import { slotsServiceOf } from './slots.ts'
 import { useLocaleRevision } from './use-locale.ts'
+import titleCss from './tab-title.module.css'
 
 /**
  * How many frames an open may wait for its target's session surface to mount.
@@ -92,8 +96,15 @@ const OPEN_RETRY_FRAMES = 6
 /** Which of this plugin's bodies a tab renders. */
 export type SidebarTabRole = 'ask' | 'history'
 
-/** The body component a tab contributes. */
-export type SidebarTabBody = (props: SidebarqaTabComponentProps) => unknown
+/**
+ * The body component a tab contributes.
+ *
+ * A component type, not an anonymous function: `bodyFor` hands it to
+ * {@link containPanel}, which exists so the panel is MOUNTED inside this
+ * plugin's containment boundary — a direct call would run it in the wrapper's own
+ * render, outside the boundary's reach.
+ */
+export type SidebarTabBody = ComponentType<SidebarqaTabComponentProps>
 
 /**
  * One tab type this plugin contributes to DSH's right column.
@@ -113,6 +124,16 @@ export interface SidebarTab {
   readonly kind: string
   /** Ascending position among every registered type's guide entries. */
   readonly order: number
+  /**
+   * The tab's glyph, drawn by the chip (through the live title seat) and by this
+   * type's guide capsule.
+   *
+   * Both placements are the host's, and both FALL BACK to something generic when
+   * this is absent — the chip shows bare text, the guide capsule draws its cube
+   * placeholder — so an icon-less type reads as a placeholder rather than as this
+   * plugin. `IconProps` is the host's own icon contract (`size` + `className`).
+   */
+  readonly icon: ComponentType<IconProps>
   /** The tab chip's initial text, captured into the layout record at open time. */
   readonly title: () => string
   /** One line under the guide capsule, when the guide has room to draw it. */
@@ -181,6 +202,27 @@ export function nativeSidebarServicesOf(ctx: Context): NativeSidebarServices | u
   return { tabs, sidebar, slots }
 }
 
+/**
+ * Whether this client already KNOWS the target session is archived.
+ *
+ * The archive set is registry-global and arrives whole from the host, so a
+ * positive answer is a fact, not a guess — which is what makes it safe to turn
+ * the gesture into a no-op. Everything about the read is defensive: a host whose
+ * workspaces feed is missing or malformed answers "not archived", because a
+ * guard that cannot read its input must not start refusing opens.
+ * @param ctx - the client plugin context.
+ * @param sessionId - the session an open is aimed at.
+ * @returns whether the session is archived.
+ */
+export function isArchivedTarget(ctx: Context, sessionId: string): boolean {
+  try {
+    const archived = ctx.workspaces.list.getSnapshot().archivedSessionIds
+    return Array.isArray(archived) && archived.includes(sessionId)
+  } catch {
+    return false
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Open payloads
 // ────────────────────────────────────────────────────────────────────────────
@@ -245,25 +287,91 @@ function nativeAskParams(quote: unknown): Record<string, unknown> | undefined {
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * The live chip text for one tab type.
+ * The live chip content for one tab type: the type's glyph, then its title text.
  *
  * A COMPONENT, not a string: the seat renders whatever this returns, and only a
  * component can subscribe to the plugin's locale revision. `title(address)` is
  * read once, when the tab opens, and the layout record is never retitled — so
  * this seat is the only way an already-open tab's chip follows a language switch.
+ *
+ * The glyph belongs HERE rather than in the registration's `title`: the layout
+ * record keeps a tab's title as a plain STRING, so a title-captured glyph could
+ * only ever be text — and, on this host, only this seat draws anything before it.
+ * `createElement`, not JSX: this module is a `.ts`. The fragment mirrors the
+ * guide type's own chip (`ui-sidebar-right/tabs/guide/GuideTitle.tsx`), which is
+ * what the strip's row layout is written against.
  * @param tab - the registered tab.
  * @returns the component to register in the title seat.
  */
 function titleFor(tab: SidebarTab): () => unknown {
   return function NativeSidebarTitle(): unknown {
     useLocaleRevision()
-    return tab.title()
+    return createElement(
+      Fragment,
+      null,
+      createElement(tab.icon, { className: titleCss.titleIcon }),
+      tab.title(),
+    )
+  }
+}
+
+/**
+ * The tab information to fall back to when the host's reader throws.
+ *
+ * A detached occurrence: nothing to navigate, nothing to read, not visible. It
+ * renders the panel inert for one commit instead of retiring the tab FOR THE
+ * WHOLE PAGE (see {@link useTabInfoSafely}).
+ */
+const DETACHED_TAB_INFO: SidebarqaSidebarRightTabInfo = {
+  sidebar: { expanded: false, fullscreen: false },
+  panel: { id: '' },
+  tab: { id: '', visible: false, navigation: { address: '', params: undefined, revision: 0 } },
+}
+
+/**
+ * Read the host's per-tab information WITHOUT letting a throw escape.
+ *
+ * `useTabInfo()` throws (`sidebarRight: tab "<id>" is not committed in session
+ * "<id>"`, `ui-sidebar-right/src/client/tab-info.ts:35`) whenever the store's
+ * committed layout does not list the tab being drawn. That is a transient
+ * inconsistency the HOST can produce on its own — a store commit that drops or
+ * re-mints a layout lands a render before the dock unmounts the body — and an
+ * escaping error here is not a cosmetic problem: the seat's per-entry boundary
+ * handles it by ABDICATING this registration (`ui-slots/src/index.ts:1541`,
+ * `abdicated.add(entry)`), which retires this plugin's tab body for EVERY
+ * session until a page reload. Re-opening the tab cannot bring it back, because
+ * the registration is gone — the exact "the panel went blank and never returns"
+ * symptom this guard exists to make impossible.
+ *
+ * The hook order is unaffected: `tabInfoFactory` calls its own hooks before the
+ * `useMemo` whose factory throws, so every hook this call makes is made either
+ * way. A host that instead throws BETWEEN hooks would be an upstream API break,
+ * which React reports on its own terms.
+ * @param useTabInfo - the seat's injected reader.
+ * @returns the information, or a detached stand-in when the reader failed.
+ */
+function useTabInfoSafely(useTabInfo: UseTabInfo): SidebarqaSidebarRightTabInfo {
+  try {
+    return useTabInfo()
+  } catch (error) {
+    console.warn(
+      '[dsh-sidebar-qa] the right column handed this tab no committed record '
+      + '(the panel stays alive and re-reads on the next commit):',
+      error,
+    )
+    return DETACHED_TAB_INFO
   }
 }
 
 /**
  * The body component for one tab: it reads the seat's injected tab-information
  * hook and renders the (hook-free, service-free) panel under it.
+ *
+ * The panel is wrapped in this plugin's OWN containment boundary. Letting a
+ * render error reach the seat instead is not a per-tab problem: DSH's per-entry
+ * boundary ABDICATES the crashed registration, so the tab body dies for every
+ * session until the page reloads — the "panel went white and never came back"
+ * report, with no message anywhere.
  * @param tab - the registered tab.
  * @param ctx - the plugin's activation context, handed to the panel.
  * @param openHistory - the plugin's own history open, for the tree's 跳转 action.
@@ -275,13 +383,18 @@ function bodyFor(
   openHistory: (scope: { sessionId: string }) => void,
 ): (props: NativeBodyProps) => unknown {
   return function NativeSidebarBody(props: NativeBodyProps): unknown {
-    const tabInfo = props.useTabInfo()
+    const tabInfo = useTabInfoSafely(props.useTabInfo)
     const tabId = tabInfo.tab.id
     const { revision } = tabInfo.tab.navigation
     // One occurrence per navigation: re-created when the tab is navigated to
     // again, which is exactly when the panel must re-read its open payload.
     // Depending on `revision` (not on the params object, which the layout record
     // may rebuild) keeps that contraction explicit.
+    //
+    // A DETACHED fallback (tab id '' and revision 0) is a distinct occurrence
+    // from any real one, so recovering from it re-reads the payload: a quote
+    // that arrived with the open is still delivered, because `takeQuoteOnce`
+    // stays armed while the reader yields nothing.
     const occurrence = useMemo<SidebarqaTabOccurrence>(
       () => ({
         tabId,
@@ -298,7 +411,10 @@ function bodyFor(
       visible: tabInfo.tab.visible,
       sidebar: occurrence,
     }
-    return tab.component(bodyProps)
+    // `containPanel`, not JSX: this module is a `.ts` (its spec imports it as
+    // one), and that helper is also what keeps the panel MOUNTED inside the
+    // boundary rather than called in this component's own render.
+    return containPanel(props.sessionId, tab.component, bodyProps)
   }
 }
 
@@ -326,12 +442,22 @@ function registerTab(
   // `guide` is what makes the type DISCOVERABLE: the strip's `+` control only
   // ever re-opens the guide page, and the guide lists registered types through
   // exactly these entry boxes. Without one the tab could only be opened by code.
+  //
+  // The entry's `icon` is a required field HERE because its absence is invisible
+  // in the type system but visible to the user: `GuideBody`'s capsule draws its
+  // cube placeholder for any entry that names no glyph.
   disposers.push(tabs.register({
     id: tab.id,
     kind: tab.kind,
     priority: 'extension',
     title: () => tab.title(),
-    guide: [{ id: tab.role, order: tab.order, title: tab.title, description: tab.description }],
+    guide: [{
+      id: tab.role,
+      order: tab.order,
+      title: tab.title,
+      description: tab.description,
+      icon: tab.icon,
+    }],
   }))
 
   // Stage two: the body, keyed by the SAME implementation id.
@@ -483,6 +609,19 @@ export function installSidebarTabs(ctx: Context, opts: { tabs: readonly SidebarT
     const kind = kindByRole.get(role)
     if (kind === undefined) {
       console.warn(`[dsh-sidebar-qa] the ${role} tab is not registered; nothing to open.`)
+      return
+    }
+    if (isArchivedTarget(ctx, scope.sessionId)) {
+      // Navigating to an archived session is WORSE than a failed navigation:
+      // `uiWorkspace.openSession` retains it happily, and DSH's own navigation
+      // policy then drops it again (`clearArchivedCurrent` → `clearMain`:
+      // `ui-workspace/src/client/navigation.ts:287-301`), leaving an empty main
+      // pane with no mounted conversation — and therefore no right column either.
+      // The panel the user was reading disappears with it, so the gesture is
+      // refused up front and the current view is left alone.
+      console.warn(
+        `[dsh-sidebar-qa] session ${scope.sessionId} is archived; not navigating to it.`,
+      )
       return
     }
     const params = quote === undefined ? undefined : nativeAskParams(quote)

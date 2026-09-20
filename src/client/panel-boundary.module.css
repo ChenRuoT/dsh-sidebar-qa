@@ -1,0 +1,39 @@
+/*
+ * The panel crash strip (`panel-boundary.tsx`). Colors come from the DSH design
+ * platform tokens, so it follows the app's light/dark scheme like every other
+ * surface in this plugin.
+ */
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.title {
+  color: var(--dsw-alias-state-error-primary, var(--dsw-alias-label-primary));
+  word-break: break-word;
+}
+
+.hint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.retry {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}

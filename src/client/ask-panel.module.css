@@ -42,6 +42,35 @@
   background: var(--dsw-alias-button-info-fill);
 }
 
+/* A follow-up whose DSH session is archived/deleted: still listed (the row is
+   this plugin's own lineage, and it comes back if the session is restored) but
+   visibly not selectable. */
+.switcherStale {
+  border-style: dashed;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+/* The body's replacement when the SELECTED follow-up went stale under it. */
+.staleNotice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.staleRemove {
+  appearance: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .newAsk {
   appearance: none;
   border: 1px dashed var(--dsw-alias-border-l3);

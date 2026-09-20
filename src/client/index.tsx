@@ -22,6 +22,7 @@
  * 「添加到对话」) still works, because neither of those needs a sidebar.
  */
 import { createRoot, type Root } from 'react-dom/client'
+import { IconQuestionOutline14, IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import { AskPanel } from './AskPanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
@@ -57,6 +58,14 @@ export const inject = ['sessions', 'remote', 'remote.session', 'workspaces']
  * implementation identity DSH keys the body and the live-title seats by; `kind`
  * is the dispatch name `openTab` resolves. Deriving either from the other is what
  * once registered a type as `ask` and then opened `dsh-sidebar-qa:ask`.
+ *
+ * `icon` is the glyph the host's own chrome draws — the tab chip (through the
+ * live title seat) and the guide capsule (`+`). Both fall back to something
+ * generic without it (bare text / the guide's cube placeholder), so it is part of
+ * the tab's identity, not decoration: these are the two glyphs the pre-native
+ * registration used (`IconQuestionOutline14` for 追问, `IconQueueOutline14` for
+ * 追问记录) and they are the host's own icon set, which the platform module table
+ * already provides — no value import from another feature plugin.
  * @param store - the plugin's own store, merged into every panel's props.
  * @returns the tab descriptors.
  */
@@ -67,6 +76,7 @@ function sidebarTabSpecs(store: SidebarqaStore): readonly SidebarTab[] {
       id: 'dsh-sidebar-qa:ask',
       kind: 'ask',
       order: 60,
+      icon: IconQuestionOutline14,
       title: () => t('askTabTitle'),
       description: () => t('askGuideDesc'),
       component: props => <AskPanel {...props} store={store} />,
@@ -76,6 +86,7 @@ function sidebarTabSpecs(store: SidebarqaStore): readonly SidebarTab[] {
       id: 'dsh-sidebar-qa:history',
       kind: 'history',
       order: 70,
+      icon: IconQueueOutline14,
       title: () => t('histTabTitle'),
       description: () => t('histGuideDesc'),
       component: props => <HistoryPanel {...props} store={store} />,

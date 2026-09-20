@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SidebarqaWorkspaceView } from '../src/context-types.ts'
 import {
-  filterHistoryToWorkspace, removeSubtree, rootsOf, sessionStatus, subtreeIds,
+  filterHistoryToWorkspace, followUpAvailability, isFollowable, lastFollowableFollowUp,
+  removeSubtree, rootsOf, sessionStatus, subtreeIds,
   subtreeLatestUpdatedAt, workspaceOwningSession,
 } from '../src/client/history-scope.ts'
 
@@ -119,6 +120,58 @@ describe('sessionStatus', () => {
 
   it('gone when absent from the feed and not archived', () => {
     expect(sessionStatus('s1', {}, new Set())).toBe('gone')
+  })
+})
+
+describe('followUpAvailability', () => {
+  it('archived wins over everything (the archive set is a host fact)', () => {
+    expect(followUpAvailability('s1', { s1: {} }, new Set(['s1']), true)).toBe('archived')
+    expect(followUpAvailability('s1', {}, new Set(['s1']), false)).toBe('archived')
+  })
+
+  it('live when the feed lists the session and it is not archived', () => {
+    expect(followUpAvailability('s1', { s1: {} }, new Set(), true)).toBe('live')
+    expect(followUpAvailability('s1', { s1: {} }, new Set(), false)).toBe('live')
+  })
+
+  it('deleted only once the feed is ready — a pending feed is not a verdict', () => {
+    // This is the whole reason the ask panel does not reuse `sessionStatus`:
+    // disabling a chip (and refusing to follow it) because the list still has
+    // not hydrated would break the panel on every cold load.
+    expect(followUpAvailability('s1', {}, new Set(), true)).toBe('deleted')
+    expect(followUpAvailability('s1', {}, new Set(), false)).toBe('unknown')
+  })
+})
+
+describe('isFollowable', () => {
+  it('refuses exactly the two states that cannot be read', () => {
+    expect(isFollowable('live')).toBe(true)
+    expect(isFollowable('unknown')).toBe(true)
+    expect(isFollowable('archived')).toBe(false)
+    expect(isFollowable('deleted')).toBe(false)
+  })
+})
+
+describe('lastFollowableFollowUp', () => {
+  const feed = { live1: {}, live2: {} }
+
+  it('picks the newest follow-up that can be read', () => {
+    expect(lastFollowableFollowUp(['live1', 'live2'], feed, new Set(), true)).toBe('live2')
+  })
+
+  it('skips an archived or deleted newest follow-up', () => {
+    expect(lastFollowableFollowUp(['live1', 'live2', 'old'], feed, new Set(['live2']), true)).toBe('live1')
+    expect(lastFollowableFollowUp(['live1', 'gone'], feed, new Set(), true)).toBe('live1')
+  })
+
+  it('keeps a not-yet-hydrated follow-up selectable while the feed is pending', () => {
+    expect(lastFollowableFollowUp(['pending1'], {}, new Set(), false)).toBe('pending1')
+  })
+
+  it('returns null when nothing is followable, and for no children at all', () => {
+    expect(lastFollowableFollowUp(['a'], {}, new Set(), true)).toBeNull()
+    expect(lastFollowableFollowUp(['a'], {}, new Set(['a']), true)).toBeNull()
+    expect(lastFollowableFollowUp([], feed, new Set(), true)).toBeNull()
   })
 })
 

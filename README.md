@@ -29,20 +29,25 @@
 - **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调——入口是 **DSH 设置页 → 左侧导航「追问」**（面板注册为 `settings.section`），也可以直接写 `settings.yaml` 的 `sidebarqa` 命名空间，两条路写的是同一份配置
 - **🌏 中英双语**：界面文案与模型侧提示词跟随 DSH 语言设置实时切换（无需刷新，**包括已打开 tab 的标题**）；**回答语言跟随你提问/划选的内容**，不被界面语言绑架
 
-> 🔌 **只注册进 DSH 自带右侧栏**：DSH **0.1.5-alpha.1 及以上**自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`），本插件直接注册进它（`ctx.sidebarRightTabs` / `ctx.sidebarRight` 服务 + `sidebar.right.pane.tab` 与 `sidebar.right.pane.tab.title` 席位），**无任何额外依赖**。`dsh-better-sidebar` 兼容已在 0.6.0 彻底移除。更早的 DSH 上插件**仍然激活**：划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn`）。
+> 🔌 **只注册进 DSH 自带右侧栏**：DSH **0.1.5-alpha.1 及以上**自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`），本插件直接注册进它（`ctx.sidebarRightTabs` / `ctx.sidebarRight` 服务 + `sidebar.right.pane.tab` 与 `sidebar.right.pane.tab.title` 席位），**无任何额外依赖**。`dsh-better-sidebar` 兼容已在 1.0.0 彻底移除。更早的 DSH 上插件**仍然激活**：划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn`）。
 
 ## 📦 更新记录
 
-### 0.6.0 - 2026-09-XX
+### 1.0.0 - 2026-09-20
 
-- **移除 `dsh-better-sidebar` 兼容，只注册进 DSH 自带右侧栏**：插件不再有第二个后端，也不再需要任何额外依赖；peer 依赖 `dsh-better-sidebar` 与其 `peerDependenciesMeta` 条目已删除（`pnpm install` 后 lock 里的 `node-pty` / `protobufjs` 一并消失）。
+**首个 1.x：只注册进 DSH 自带右侧栏，零额外依赖。** 破坏性变更在于**移除了 `dsh-better-sidebar` 后端**（见下），因此按 semver 走 major：只装 `dsh-sidebar-qa` 即可，不再需要任何 peer 侧边栏基座。
+
+- **移除 `dsh-better-sidebar` 兼容（破坏性）**：插件不再有第二个后端，也不再需要任何额外依赖；peer 依赖 `dsh-better-sidebar` 与其 `peerDependenciesMeta` 条目已删除（`pnpm install` 后 lock 里的 `node-pty` / `protobufjs` 一并消失）。
   - DSH ≥ `0.1.5-alpha.1`：注册进 DSH 自带右侧栏。栏位展开/拆分/浮动/全屏由 DSH 自己管，插件不再需要手动展开面板。
   - 更早的 DSH：插件**仍然激活**，划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn`）。
   - **已打开 tab 的标题现在会跟随语言切换**：插件在 `sidebar.right.pane.tab.title` 席位注册了一个活的标题组件（以前该标题会冻结在打开时的语言）。
   - **新增能力**：`src/client/ask-mode.ts`（面板视图模式）、`src/client/show-session.ts`（用 `ctx.uiWorkspace.openSession` 把目标会话切到屏幕上）。
+- **补回两个 tab 的图标**：`+` 页胶囊与 tab 条上的 chip 现在分别显示 ❓（追问）与队列（追问记录）的宿主图标——原生改造时 `icon` 字段整个丢了，胶囊一直在画宿主的方块占位。
+- **已归档 / 已删除的追问不再把面板带塌**：切换条里这类行**置灰不可点**并标注状态，默认选中改为「最新一条**可读**的追问」；选中项在阅读中被归档时给出说明 + 「移除」，输入区停用。此前点它们会把面板切到一段读不出内容的会话上（永远「生成中…」）。
+- **面板不再可能整块变白且无法恢复**：两个已知触发点都已修掉（宿主 `MarkdownText` 的文案 prop 改名后含**代码块**的消息会渲染崩溃；面板内的任何渲染错误以前会让 tab body 在**整页所有会话**上被永久摘除），并新增本插件自己的错误边界：崩溃就地显示为一条**可重试**的说明条，标签页本身不受影响。
 - **修掉一批「类型镜像臆造上游成员」导致的静默故障**：「添加到对话」一直找不到目标会话、「追问记录」跳转抛 `TypeError`、局域网访问 `/sidebarqa/api` 恒 403、`assistant-stream` 帧读取崩溃等。详见 [CHANGELOG](./CHANGELOG.md)。
 - **配置面板已迁入 DSH 官方设置页**：`ConfigPanel` 现在注册成一个 `settings.section`（`src/client/settings-slot.ts` 注册 + `src/client/settings-section.tsx` 页面），设置页左侧导航因此新增**一整页**「追问」（排在 DSH 自带各页之后），**不再有齿轮弹窗**。之所以不是 `plugins.item`：那个席位的契约留给 `ui-settings-plugins` 的 host-plane 配置页，且在没有受管 profile 的部署上整页不可用，会把配置入口一起带走。
-- **host 与 client 两半都有改动**（host 侧修了 `/sidebarqa/api` 的信任围栏），且 `package.json` 的 peer 依赖有变化：升级后请重新 `pnpm install`，并重启 `dsh web`。
+- **host 与 client 两半都有改动**（host 侧修了 `/sidebarqa/api` 的信任围栏），且依赖层有变化（移除 `dsh-better-sidebar` peer；`@deepseek-ai/dsh-client-ui-primitives` 的类型桩精确钉到 `0.1.6-alpha.2`）：升级后请重新 `pnpm install`，并重启 `dsh web`。
 
 ### 0.5.0 - 2026-08-29
 

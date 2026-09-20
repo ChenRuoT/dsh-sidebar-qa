@@ -2,7 +2,9 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [0.6.0] - 2026-09-XX
+## [1.0.0] - 2026-09-20
+
+**首个 1.x：只注册进 DSH 自带右侧栏，零额外依赖。** 走 major 的原因只有一条——**移除了 `dsh-better-sidebar` 后端**（`### Removed` 一节）：升级后不再需要任何 peer 侧边栏基座，装 `dsh-sidebar-qa` 一个包即可；此前依赖 better-sidebar 的部署请一并卸掉它。
 
 ### Added
 
@@ -36,6 +38,26 @@
 
 ### Fixed
 
+- **侧边栏的 tab 图标没了：`+` 页（guide）的胶囊画的是宿主的方块占位，tab 条上只有裸文字**。原生改造（1.0.0 的重构）把图标整个丢了——旧的 better-sidebar 注册里写着 `icon: (size) => <IconQuestionOutline14 size={size} />`（追问）与 `IconQueueOutline14`（追问记录），而新的 `SidebarTab` 描述里没有这个字段。宿主的两处放置都会**在缺省时回退到别的东西**（guide 胶囊 → 自己的方块占位 `GuideBody.tsx:48,59`；tab chip → 裸标题），所以缺图标不是「朴素」，而是别人家的占位符。现修：
+  - `SidebarTab` 新增必填 `icon: ComponentType<IconProps>`，`index.tsx` 两个 tab 分别用回 `IconQuestionOutline14` / `IconQueueOutline14`（宿主自带图标集，走平台模块表，不引入其它特性插件的值）。
+  - **guide 胶囊**：`guide[].icon` 直接传该 glyph。
+  - **tab chip**：布局记录里的标题只是**字符串**，图标不可能随标题捕获，所以 glyph 由**活标题席位**渲染——`titleFor` 现在返回 `Fragment(glyph, title)`（与宿主自己的 chip 标题 `GuideTitle.tsx` 同构），glyph 的样式在新的 `src/client/tab-title.module.css`（`flex: none` + `color: var(--dsw-alias-label-tertiary)`，与宿主一致）。
+  - 顺带修掉一处**镜像漏声明**（同一类：镜像自己就是唯一声明，漏了编译器不会报，运行时静默丢）：`context-types.ts` 的 `SidebarqaSidebarRightGuideEntry` 没有 `icon`（上游 `tab-registry.ts:79`），所以即便传了也无处安放。现已补上并注明出处；`IconProps` 直接从宿主包里 `import type`，不再二次镜像。
+  - `useLocaleRevision` 的 `useSyncExternalStore` 补上第三个参数（server snapshot）：缺它时任何服务端渲染都会抛 `Missing getServerSnapshot`，也让标题席位在 node 环境无法验收。活动语言 id 是稳定原语，正是服务端渲染该读的值。
+  - 回归用例：`tests/sidebar-native.spec.ts`（guide 条目必须带 tab 的 glyph；活标题席位必须渲染「glyph 在前、标题在后」）。
+- **「全量继承」追问会让面板全白且不可恢复**（本轮实测发现，**根因是一条上游 prop 改名**）。`MarkdownText` 的本地化文案 prop 从 `codeLabels` 改名成了 `labels`（`MarkdownLabels = { code: { copyLabel, copiedLabel }, footnotes }`，改名发生在 DSH `0.1.2-alpha.2` 之前），而**宿主渲染器读 `labels.code.copyLabel` 时没有任何守卫**（`ui-primitives/src/markdown/render.tsx:400`）。本插件一直在传已退役的 `codeLabels`，于是 `labels` 为 `undefined` —— **任何一条含围栏代码块的消息只要被渲染就抛 `TypeError`**。这解释了为什么它看起来是「全量继承特有的」：继承会把主导对话的整段历史（写代码的对话，满是代码块）画进面板，而普通追问的回答常常是纯文字。异常逃出席位后被 **abdicate**（`ui-slots/src/index.ts:1541`），本插件的 tab body 因此在**整页所有会话**上被永久摘除——只能刷新。
+  - 现在传 `labels`（`AskPanel` 的 `markdownLabels`，按 locale memo：`MarkdownText` 以它的引用身份缓存流式渲染），新增文案键 `mdFootnotes`（脚注小节标题），退役的 `codeLabels` 从代码里彻底删除。
+  - **为什么此前 `tsc` 报不出来**：类型来自 devDependency 桩 `@deepseek-ai/dsh-client-ui-primitives`，其范围写的是 `^0.1.0-rc.8`，而**带预发布的 semver 区间永远匹配不到另一个 patch 的预发布版本**（`0.1.6-alpha.2` 不满足 `^0.1.0-rc.8`，也不满足 `>=0.1.2-alpha.2`）——桩因此被永久冻结在改名之前的 API 上，编译器一直拿旧契约校验新代码。现把 devDependency **精确钉到 `0.1.6-alpha.2`**（与运行中的 DSH 一致），peer 只声明下限 `>=0.1.2-alpha.2`；`pnpm-workspace.yaml` 新增 `peerDependencyRules.allowedVersions`（该桩 peer 了一个本包从不链接的 `@deepseek-ai/cordis` 副本，cordis 由平台模块表提供）。lock 随之去掉旧桩那条重依赖图（katex / micromark / mdast 一族，约 860 行），新桩自身零依赖。
+  - 回归用例：`tests/markdown-labels.spec.ts` 直接钉住**装好的桩**（必须声明 `labels:`、必须不再有 `codeLabels:` 属性），把「范围悄悄退回预发布旧版 → 类型检查重新放行」这条路堵死。
+- **面板里的任何渲染错误都不再可能让 tab body 整页失效**：新增本插件自己的错误边界（`src/client/panel-boundary.tsx`，挂在 `sidebar-native.ts` 的 `bodyFor` 最外层）：崩溃被就地渲染成一条**可重试**的说明条（`errPanelCrashed` / `panelCrashHint` / 复用 `commonRetry`），标签页本身留着；切换会话（`resetKey` = sessionId）会自动清掉崩溃面。`containPanel(resetKey, Panel, props)` 接收**组件**而不是现成元素，因此「把面板当普通函数调用」这种会让边界失效的写法（本节第一条修 bug 时我自己就先写成了这样）**变成类型错误**；测试另有一道 wiring 守卫（`tests/panel-boundary.spec.ts`：`bodyFor` 必须 `return containPanel(props.sessionId, tab.component, bodyProps)`，且不得再出现 `tab.component(bodyProps)`）。注：React 的服务端渲染器不咨询错误边界（直接 rethrow），因此containment 在 node 环境以**元素结构**断言，而非渲染。
+- **在「追问」页点到一条已被归档 / 已删除的追问，会让面板内容整块消失、而且再也调不出来**（本轮实测发现）。根因是**插件自己维护的 localStorage 父子映射不会随 DSH 侧的归档/删除清理**：切换条里的陈旧行照旧可点，点下去就是把面板切到一段**读不出内容**的会话上（正文永远停在「生成中…」）；更糟的是这类 id 一旦被拿去导航，`uiWorkspace.openSession` 会**先**把它 retain 成主视图，DSH 自己的导航策略**随后**再把它丢掉（`ui-workspace/src/client/navigation.ts:287-301` 的 `clearArchivedCurrent` → `clearMain`），主视图与整个右栏一起失效——用户正在读的面板随之消失。三处一起修（均为 client 半）：
+  - **切换条逐条分类**：新增纯函数 `followUpAvailability` / `isFollowable` / `lastFollowableFollowUp`（`src/client/history-scope.ts`）。已归档 / 已删除的追问**保留可见**（映射行还在，DSH 侧恢复归档后立刻可用）但**置灰不可点**，并标注「已归档 / 已删除」——与「追问记录」的陈旧行同一套语言。面板的默认选中也改为「最新一条**可读**的追问」，不再默认落到一条读不出的会话上。
+  - **选中项在阅读时被归档**：正文改为明确的说明文案 + 「移除」（只清插件自己的映射，DSH 侧会话不动），输入框、策略、模型座与发送键一并停用。不再有「面板开着却什么都没有、也不知道为什么」的状态。
+  - **导航入口补围栏**：`sidebar-native.ts` 切屏前先读 `workspaces.list` 的 `archivedSessionIds`（`isArchivedTarget`），命中则**只记一条 warn 并放弃这次手势**，绝不把已归档会话 retain 成主视图；读不到 archive 集时一律当作「未归档」，围栏不会因为读不到输入而开始拒绝打开。
+  - 分类特意**不复用**「追问记录」的 `sessionStatus`：行标签可以立刻把「feed 里还没有」写成「已删除」，而切换条一旦照此**禁用**，冷启动（`phase !== 'ready'`）时就会把全部追问锁死。`followUpAvailability` 因此多出一个 `unknown`（feed 尚未 hydrate，按可用来处理）。
+- **宿主 `useTabInfo` 抛错会让本插件的 tab body 在整页范围内永久失效**。DSH 的 keyed 席位错误边界对崩溃条目的处理是 **abdicate**（`ui-slots/src/index.ts:1541`：`abdicated.add(entry)`）——把这条注册从席位上**永久摘除**，于是**所有会话**的这个 tab 一起变空白，重新打开也回不来（只能刷新页面），正是「内容完全消失且不能再调出」。而 `tab-info.ts:35` 抛的 `tab "<id>" is not committed in session "<id>"` 是宿主自己就可能瞬时产生的状态（布局提交与渲染不一致）。现在 body 读取该 hook 时**捕获并降级**为一条中性的「未挂载」出现实例（`useTabInfoSafely`）：这一帧面板渲染成惰性内容，下一次一致提交即自愈；`takeQuoteOnce` 只在真正读到 payload 时才消费，所以随打开带来的引文**不会因为这次降级而丢**。
+- 回归用例：`tests/history-scope.spec.ts`（可用性分类 13 例）、`tests/sidebar-native.spec.ts`（已归档目标拒绝导航、hook 抛错仍渲染、引文跨降级仍可交付）、`tests/panel-boundary.spec.ts`（边界状态机 + containment 结构 + wiring 守卫）、`tests/markdown-labels.spec.ts`（类型桩契约），全套 23 文件 / 342 用例。
+
 以下三条都是**在真实部署上实测发现**（现象：侧边栏里看不到 tab），按「上游 → 下游」的顺序排列——前两条如果不修，第三条根本走不到：
 
 - **`ctx.inject` 的每个键都是「必需依赖」，不存在可选形式**（**这条是根因**）。上游 cordis 的 `Fiber._refresh` 会遍历 `Object.keys(this.inject)`，只要有一个键没有实现就把 fiber 置为 `INACTIVE`，因此回调**只在全部服务都存在时**才运行。初版写成 `ctx.inject({ sidebarRightTabs: null, betterSidebar: null }, cb)`，语义是「要求原生侧边栏和 better-sidebar **同时**存在」——现实中不成立，于是 fiber 永久 PENDING、回调一次都没跑，插件什么也没注册，**却仍然打印了正常的激活日志**。`{ name: null }` 不是「可选」，而是「必需，并以 `null` 拦截」。
@@ -66,7 +88,7 @@
 - **配置面板已迁入 DSH 官方设置页**：它现在注册成 `settings.section`，在设置页左侧导航里是**一整页**「追问 / Follow-up」（排在 DSH 自带各页之后，`order: 30`），**不再有齿轮弹窗**；`settings.yaml` 的 `sidebarqa` 命名空间仍然有效，两条路写的是同一份配置。之所以不是 `plugins.item`：该席位的契约明文留给 `ui-settings-plugins` 那类 host-plane 配置页、并要求 bundle 配置走 `plugins.bundle.config`，而那个插件页在没有受管 profile 时整页不可用，会把配置入口一起带走。
 - **跳转会先把目标会话切到屏幕上**：原生 `openTab` 只作用于**已挂载**的会话 surface，而右栏的 session 绑定由 React effect 在下一次 commit 才重新发布，所以紧跟导航的打开会**静默**打到刚离开的会话。现在的顺序是：先 `ctx.uiWorkspace.openSession`（`src/client/show-session.ts`）把目标会话切到屏幕上，随后用 `openTabIn(sessionId, kind, …)` 定向到目标会话自己的 store —— 该 store 尚未被 adopt 时它是**静默 no-op**，所以**不可能开错会话** —— 在几个帧的有界预算内重发，并以 `active()` 确认，最终失败才 `console.warn`。**有界重试只在需要切换时发生**：目标已经是屏幕上的会话就直接 `openTab`，一次到位。
 
-> 部署提醒：**host 与 client 两半都有改动**（host 侧修了 `/sidebarqa/api` 的信任围栏与 `webRuntime` 读取），且 manifest 层移除了 peer 依赖（lock 随之变化）：升级后请重新 `pnpm install`，并重启 `dsh web`。
+> 部署提醒：**host 与 client 两半都有改动**（host 侧修了 `/sidebarqa/api` 的信任围栏与 `webRuntime` 读取），且 manifest / 依赖层有变化：`dsh-better-sidebar` peer 被移除，`@deepseek-ai/dsh-client-ui-primitives` 的 devDependency 精确钉到 `0.1.6-alpha.2`、peer 改为下限 `>=0.1.2-alpha.2`，`pnpm-workspace.yaml` 新增 `peerDependencyRules`（lock 随之变化，去掉旧桩那条 katex/micromark 依赖图）：升级后请重新 `pnpm install`，并重启 `dsh web`。本轮新修的两条（`MarkdownText` 的 `labels` 与面板错误边界）都是 **client 半**代码，硬刷新浏览器即生效。
 
 ## [0.5.0] - 2026-08-29
 

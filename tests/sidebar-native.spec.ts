@@ -1,4 +1,5 @@
 import { createElement } from 'react'
+import type { ComponentType } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -13,6 +14,7 @@ import type {
 } from '../src/context-types.ts'
 import {
   installSidebarTabs,
+  isArchivedTarget,
   nativeSidebarServicesOf,
   quoteOfNavParams,
   takeQuoteOnce,
@@ -85,6 +87,7 @@ interface FakeList {
 function fakeCtx(
   services: Record<string, unknown> = {},
   initial: Partial<FakeList> = {},
+  opts: { archived?: readonly string[] } = {},
 ) {
   const cleanups: Array<() => void> = []
   const serviceListeners: Array<() => void> = []
@@ -117,6 +120,12 @@ function fakeCtx(
     },
     sessions: {
       list: { getSnapshot: () => list, subscribe: () => () => {} },
+    },
+    workspaces: {
+      list: {
+        getSnapshot: () => ({ items: [], archivedSessionIds: [...(opts.archived ?? [])] }),
+        subscribe: () => () => {},
+      },
     },
   } as unknown as Context
   return {
@@ -153,10 +162,21 @@ function tabOf(
     id: role === 'ask' ? ASK_ID : HISTORY_ID,
     kind: role,
     order: role === 'ask' ? 60 : 70,
+    icon: iconOf(role),
     title: () => `${role.toUpperCase()}-TITLE`,
     description: () => `${role.toUpperCase()}-DESC`,
     component: render,
   }
+}
+
+/**
+ * A distinguishable glyph double. Not a host icon: the assertions are about the
+ * glyph being HANDED TO the host at all (an icon-less registration makes the
+ * guide draw its cube placeholder and the chip show bare text) and about it being
+ * the SAME component in both places.
+ */
+function iconOf(role: string): ComponentType<{ size?: number; className?: string }> {
+  return function FakeIcon() { return createElement('svg', { 'data-icon': role }) }
 }
 
 /** The component registered in one seat, failing loudly when it is missing. */
@@ -251,6 +271,26 @@ describe('takeQuoteOnce', () => {
   })
 })
 
+describe('isArchivedTarget', () => {
+  it('answers from the registry-global archive set', () => {
+    const h = fakeCtx({}, {}, { archived: ['s-old'] })
+    expect(isArchivedTarget(h.ctx, 's-old')).toBe(true)
+    expect(isArchivedTarget(h.ctx, 's-new')).toBe(false)
+  })
+
+  it('answers "not archived" when the feed cannot be read at all', () => {
+    // A guard that cannot read its input must never refuse opens.
+    const broken = {
+      workspaces: { list: { getSnapshot: () => { throw new Error('no feed') } } },
+    } as unknown as Context
+    expect(isArchivedTarget(broken, 's1')).toBe(false)
+    const malformed = {
+      workspaces: { list: { getSnapshot: () => ({}) } },
+    } as unknown as Context
+    expect(isArchivedTarget(malformed, 's1')).toBe(false)
+  })
+})
+
 describe('installSidebarTabs', () => {
   it('registers the type, the body and the live title under ONE implementation id', () => {
     const native = fakeNative()
@@ -340,6 +380,22 @@ describe('installSidebarTabs', () => {
     expect(native.opened).toHaveLength(1)
   })
 
+  it('refuses to navigate to an ARCHIVED session, and opens nothing instead', () => {
+    // Navigating there is worse than not navigating: DSH retains the archived
+    // session and then drops it again on its own commit (`clearArchivedCurrent`
+    // → `clearMain`), which empties the main pane AND unmounts the right column —
+    // taking the panel the user was reading with it. Opening in the CURRENT
+    // session instead would be just as wrong (the tab would land in a session the
+    // gesture never named), so the whole gesture is a no-op.
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native), {}, { archived: ['s-archived'] })
+    installSidebarTabs(h.ctx, { tabs: [tabOf('history')] }).openHistory({ sessionId: 's-archived' })
+
+    expect(h.switchTo).not.toHaveBeenCalled()
+    expect(native.opened).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is archived; not navigating to it'))
+  })
+
   it('survives an openTab that throws, because a UI gesture must not vanish', () => {
     const native = fakeNative({ openTabThrows: true })
     const h = fakeCtx(mounted(native))
@@ -374,6 +430,33 @@ describe('installSidebarTabs', () => {
     // The host defaults a type with no explicit band to `extension`, but stating it
     // is what lets this plugin outrank a builtin viewer that claims the same kind.
     expect(native.types[0]?.priority).toBe('extension')
+  })
+
+  it('hands the guide capsule the tab glyph, so it cannot fall back to the cube placeholder', () => {
+    // `GuideBody`'s capsule draws `entry.icon ?? CubeGlyph` — a registration that
+    // names no glyph is not "plain", it is someone else's placeholder.
+    const native = fakeNative()
+    const tabs = [tabOf('ask'), tabOf('history')]
+    installSidebarTabs(fakeCtx(mounted(native)).ctx, { tabs })
+
+    expect(tabs.map(tab => native.types.find(type => type.id === tab.id)?.guide?.[0]?.icon))
+      .toEqual([tabs[0]?.icon, tabs[1]?.icon])
+    expect(native.types[0]?.guide?.[0]?.icon).toBeDefined()
+  })
+
+  it('draws the tab glyph beside the live chip title', () => {
+    // The chip is a string in the layout record, so a title-captured glyph could
+    // only ever be text: the live title seat is the one place the host draws
+    // anything before the label.
+    const native = fakeNative()
+    installSidebarTabs(fakeCtx(mounted(native)).ctx, { tabs: [tabOf('ask')] })
+    const Title = seatOf(native, TITLE_SEAT, ASK_ID)
+
+    const markup = renderToStaticMarkup(createElement(Title as never, {} as never))
+    expect(markup).toContain('data-icon="ask"')
+    expect(markup).toContain('ASK-TITLE')
+    // The glyph precedes the label, as in the host's own chip title.
+    expect(markup.indexOf('data-icon')).toBeLessThan(markup.indexOf('ASK-TITLE'))
   })
 
   it('waits for a sidebar that arrives after apply, then registers exactly once', () => {
@@ -485,5 +568,59 @@ describe('the body the seat renders', () => {
     expect(panel.h.switchTo).toHaveBeenCalledWith('s2')
     const history = panel.native.types.find(type => type.id === HISTORY_ID)
     expect(panel.native.opened[0]?.kind).toBe(history?.kind)
+  })
+
+  it('survives a tab-information reader that throws, instead of dying for the page', () => {
+    // An escaping error here is not cosmetic: the seat's per-entry boundary
+    // handles it by ABDICATING this registration, which retires the tab body for
+    // EVERY session until a reload — re-opening the tab cannot bring it back.
+    // The host's own reader throws exactly this way while a layout commit and a
+    // render disagree about the tab.
+    const captured: SidebarqaTabComponentProps[] = []
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, {
+      tabs: [tabOf('ask', (props) => { captured.push(props); return null })],
+    })
+    const Body = seatOf(native, BODY_SEAT, ASK_ID)
+    const broken = (): never => { throw new Error('sidebarRight: tab "tab-1" is not committed in session "s1"') }
+
+    expect(() => renderToStaticMarkup(createElement(
+      Body as never,
+      { sessionId: 's1', useTabInfo: broken } as never,
+    ))).not.toThrow()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('no committed record'),
+      expect.anything(),
+    )
+
+    // The panel still renders, inertly, and the occurrence carries nothing.
+    const props = captured[0]
+    expect(props?.visible).toBe(false)
+    expect(props?.sidebar?.takeQuote()).toBeNull()
+  })
+
+  it('keeps a quote deliverable across the detached commit', () => {
+    // The detached occurrence must not CONSUME the open payload: `takeQuoteOnce`
+    // only marks itself used once it actually reads a payload, so the next
+    // consistent commit — a fresh occurrence, because tab id and revision differ
+    // — still delivers the quote that arrived with the open.
+    const captured: SidebarqaTabComponentProps[] = []
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, {
+      tabs: [tabOf('ask', (props) => { captured.push(props); return null })],
+    })
+    const Body = seatOf(native, BODY_SEAT, ASK_ID)
+    const render = (useTabInfo: () => SidebarqaSidebarRightTabInfo): void => {
+      captured.length = 0
+      renderToStaticMarkup(createElement(Body as never, { sessionId: 's1', useTabInfo } as never))
+    }
+
+    render(() => { throw new Error('transient') })
+    expect(captured[0]?.sidebar?.takeQuote()).toBeNull()
+
+    render(() => tabInfoOf(1, { quote: 'carried' }))
+    expect(captured[0]?.sidebar?.takeQuote()).toEqual({ text: 'carried' })
   })
 })

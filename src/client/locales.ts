@@ -34,6 +34,8 @@ export const zh = {
   commonCopy: '复制',
   commonCopied: '已复制',
   commonDefault: '默认',
+  /** Markdown chrome: the footnote-section heading (MarkdownText `labels.footnotes`). */
+  mdFootnotes: '脚注',
 
   // ── 追问 tab (AskPanel) + the selection popover ───────────────────────────
   askTabTitle: '追问',
@@ -52,6 +54,11 @@ export const zh = {
   askSeedDivider: '↑ 上方为主对话历史',
   askSeedDividerMore: '↑ 上方为主对话历史，继续向上滚动加载',
   askDegradedToCompressed: '主对话正在回答中，已改用「压缩」模式，稍后可在主对话空闲时再试「全量继承」。',
+  /** Switcher row whose DSH session was archived: shown, labelled, not clickable. */
+  askStaleArchived: '这条追问已在 DSH 中归档，无法再读取或继续。可在 DSH 的「已归档会话」里恢复，或从这里移除。',
+  askStaleDeleted: '这条追问的会话已不存在（已删除）。可从这里移除。',
+  askStaleRemoveTitle: '从追问面板移除（不影响 DSH 侧会话）',
+  askStaleComposer: '该追问已无法继续',
 
   // ── 追问记录 tab (HistoryPanel) ───────────────────────────────────────────
   histTabTitle: '追问记录',
@@ -131,6 +138,9 @@ export const zh = {
   errSaveConflict: '保存失败：配置已在其他窗口被修改，请重试',
   errAskFailed: '追问失败：{detail}',
   errModelFailed: '模型加载失败：{detail}',
+  /** Panel crash strip (`panel-boundary.tsx`) — contained, not fatal. */
+  errPanelCrashed: '面板渲染出错：{detail}',
+  panelCrashHint: '错误已就地隔离，标签页本身还在。可以重试，或切换一次会话再回来。',
 }
 
 /** Every copy key (the `zh` key set is authoritative). */
@@ -145,6 +155,7 @@ export const en: Record<CopyKey, string> = {
   commonCopy: 'Copy',
   commonCopied: 'Copied',
   commonDefault: 'Default',
+  mdFootnotes: 'Footnotes',
 
   askTabTitle: 'Follow-up',
   askPopoverButton: 'Ask',
@@ -161,6 +172,10 @@ export const en: Record<CopyKey, string> = {
   askSeedDivider: '↑ Inherited main-conversation history',
   askSeedDividerMore: '↑ Inherited main-conversation history — scroll up to load more',
   askDegradedToCompressed: 'The main conversation is still answering, so "Compressed" was used instead. Try "Inherit full history" again once it is idle.',
+  askStaleArchived: 'This follow-up is archived in DSH, so it can no longer be read or continued. Restore it from DSH\'s archived sessions, or remove it here.',
+  askStaleDeleted: 'This follow-up session no longer exists (deleted). You can remove it here.',
+  askStaleRemoveTitle: 'Remove from the follow-up panel (the DSH session itself is untouched)',
+  askStaleComposer: 'This follow-up can no longer be continued',
 
   histTabTitle: 'Follow-ups',
   histEmptyAll: 'No follow-ups yet. Select text in a conversation and click "Ask" to create one.',
@@ -230,6 +245,8 @@ export const en: Record<CopyKey, string> = {
   errSaveConflict: 'Save failed: the settings were changed in another window — please retry',
   errAskFailed: 'Ask failed: {detail}',
   errModelFailed: 'Model load failed: {detail}',
+  errPanelCrashed: 'The panel failed to render: {detail}',
+  panelCrashHint: 'The failure was contained in place — the tab itself is intact. Retry, or switch sessions and come back.',
 }
 
 /** The slice of the DSH locale service this module reads (structural). */

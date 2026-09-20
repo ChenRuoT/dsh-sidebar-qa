@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import { MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   Context,
   SidebarqaHistoryEntry,
@@ -17,6 +18,12 @@ import type {
 } from '../context-types.ts'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { lastEndSeedIndex, transcriptRowsOf, type TranscriptRow } from './answer.ts'
+import {
+  followUpAvailability,
+  isFollowable,
+  lastFollowableFollowUp,
+  type FollowUpAvailability,
+} from './history-scope.ts'
 import { parseUserMessage } from './injection.ts'
 import { askFollowUp, sendFollowUp, titleSideSessionOnce } from './orchestrate.ts'
 import { sidebarqaApi, type SidebarqaConfigView } from './api.ts'
@@ -80,6 +87,16 @@ export function AskPanel(props: AskPanelProps) {
     (cb: () => void) => ctx.sessions.list.subscribe(cb),
     () => ctx.sessions.list.getSnapshot(),
   )
+  // The archive set is registry-global and arrives whole, so subscribing to the
+  // workspaces feed is what lets this panel notice that the follow-up it is
+  // READING has just been archived somewhere else.
+  const workspaceList = useSyncExternalStore(
+    (cb: () => void) => ctx.workspaces.list.subscribe(cb),
+    () => ctx.workspaces.list.getSnapshot(),
+  )
+  // `workspaceList` is in the key purely as the invalidation trigger: the set is
+  // derived from the service, and the feed's identity is what says it changed.
+  const archivedIds = useMemo(() => archivedSetOf(ctx), [ctx, workspaceList])
 
   const [activeChildId, setActiveChildId] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
@@ -94,25 +111,49 @@ export function AskPanel(props: AskPanelProps) {
   // to the read session's own model rather than a half-empty chip).
   const [config, setConfig] = useState<SidebarqaConfigView | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  // Identity-stable per locale — MarkdownText caches its component table on
-  // this object and discards the streaming render cache when it changes, so
-  // it must NOT be rebuilt on every render (it used to be a module const).
-  const codeLabels = useMemo(
-    () => ({ copyLabel: t('commonCopy'), copiedLabel: t('commonCopied') }),
+  // MarkdownText's localized chrome. `labels` is the ONLY vocabulary the host
+  // reads — the prop was renamed from `codeLabels` before DSH 0.1.2-alpha.2, and
+  // `render.tsx` reads `labels.code.copyLabel` with NO guard, so leaving it
+  // undefined turns every fenced code block (i.e. the whole inherited history of
+  // a coding conversation) into a TypeError at render time. That error used to
+  // escape this panel and retire the tab body page-wide — the "panel went white
+  // and never came back" report. Identity-stable per locale: MarkdownText caches
+  // its streaming render against this object's identity, so it must NOT be
+  // rebuilt on every render.
+  const markdownLabels = useMemo<MarkdownLabels>(
+    () => ({
+      code: { copyLabel: t('commonCopy'), copiedLabel: t('commonCopied') },
+      footnotes: t('mdFootnotes'),
+    }),
     [localeRevision],
   )
 
-  const activeRunning = activeChildId !== null && sessionList.byId[activeChildId]?.running === true
+  // ── Follow-up availability ────────────────────────────────────────────────
+  // The switcher's rows come from THIS plugin's own localStorage lineage, which
+  // survives an archive/delete in DSH — so a chip may name a conversation whose
+  // journal can no longer be read. Selecting one used to leave the panel on an
+  // empty transcript with no explanation, and (worse) let a gesture navigate to
+  // a session DSH immediately drops. The panel therefore follows `following`
+  // (never a stale id) and says out loud why a stale row cannot be read.
+  const feedReady = sessionList.phase === 'ready'
+  const availabilityOf = (id: string): FollowUpAvailability =>
+    followUpAvailability(id, sessionList.byId, archivedIds, feedReady)
+  const activeAvailability: FollowUpAvailability | null =
+    activeChildId === null ? null : availabilityOf(activeChildId)
+  const staleStatus = activeAvailability !== null && !isFollowable(activeAvailability)
+  // What the panel actually follows: the selected follow-up, unless it is stale.
+  const following = staleStatus ? null : activeChildId
+  const activeRunning = following !== null && sessionList.byId[following]?.running === true
   // The context meter binds to the session the ask is about: the active side
   // session when continuing, the parent when starting a new ask (the future
   // side session does not exist yet — and the parent's occupancy is exactly
   // what tells the user whether 全量继承 or 裁切 is the right call).
-  const toolSessionId = activeChildId ?? sessionId
+  const toolSessionId = following ?? sessionId
   // The model seat needs more than an id: a new ask must NOT write the asked
   // session's model (issue #10), so the binding also says how a pick lands.
   const seat = useMemo(
-    () => resolveModelSeat({ activeChildId, parentSessionId: sessionId, strategy, pendingModel, config }),
-    [activeChildId, sessionId, strategy, pendingModel, config],
+    () => resolveModelSeat({ activeChildId: following, parentSessionId: sessionId, strategy, pendingModel, config }),
+    [following, sessionId, strategy, pendingModel, config],
   )
 
   // ── Fork-seed anchored transcript ─────────────────────────────────────────
@@ -138,18 +179,23 @@ export function AskPanel(props: AskPanelProps) {
   // effect so the effect can retry anchoring once the own first message lands.
   const rows = useMemo(() => transcriptRowsOf(loadedEvents), [loadedEvents])
 
-  // On session change: default to the latest follow-up of that session.
+  // On session change: default to the latest follow-up of that session that can
+  // actually be read. The feeds are read HERE rather than through the render
+  // snapshot on purpose: this effect also clears the composer, so re-running it
+  // on every session-feed tick would wipe a half-typed question.
   useEffect(() => {
     const list = store.childrenOf(sessionId)
-    setActiveChildId(list.length > 0 ? (list[list.length - 1] ?? null) : null)
+    const feed = ctx.sessions.list.getSnapshot()
+    setActiveChildId(lastFollowableFollowUp(list, feed.byId, archivedSetOf(ctx), feed.phase === 'ready'))
     setQuestion('')
     setPhase('idle')
     setError(null)
     setStrategyNote(null)
     setPendingModel(null)
-  }, [sessionId, store])
-
-  // Reset the anchored transcript when the followed session changes.
+  }, [sessionId, store, ctx])
+  // Reset the anchored transcript when the followed session changes. Keyed on
+  // `following`, not on the selection: a re-classified (stale) selection must
+  // not keep a transcript of a session the panel no longer follows.
   useEffect(() => {
     seededRef.current = false
     anchoredRef.current = false
@@ -159,7 +205,7 @@ export function AskPanel(props: AskPanelProps) {
     setLoadingOlder(false)
     cursorRef.current = null
     if (scrollRef.current !== null) scrollRef.current.scrollTop = 0
-  }, [activeChildId])
+  }, [following])
 
   // Seed the per-ask strategy selector — and the model seat's drafted default —
   // from the configured values. One request feeds both.
@@ -194,8 +240,8 @@ export function AskPanel(props: AskPanelProps) {
   // (the tab was hidden, or the carrier reconnected) republishes that window,
   // which merges by seq so an upward-loaded inherited history is never lost.
   useEffect(() => {
-    if (activeChildId === null || !visible) return
-    return followSession(ctx, activeChildId, {
+    if (following === null || !visible) return
+    return followSession(ctx, following, {
       snapshot: ({ entries, cursor, hasMore }) => {
         cursorRef.current = cursor
         if (!seededRef.current) {
@@ -213,23 +259,23 @@ export function AskPanel(props: AskPanelProps) {
         setLoadedEvents(prev => mergeEntries(prev, [entry]))
       },
     })
-  }, [activeChildId, visible, ctx])
+  }, [following, visible, ctx])
 
   // Post-answer retitle: fires once (guarded by the store's titled flag). Only
   // the child's OWN events feed it — inherited parent history must not
   // contaminate the question/answer extraction.
   useEffect(() => {
-    if (activeChildId === null || loadedEvents.length === 0) return
+    if (following === null || loadedEvents.length === 0) return
     const ownEvents = anchorSeq === null
       ? loadedEvents
       : loadedEvents.filter(entry => entry.event.seq > anchorSeq)
     if (ownEvents.length === 0) return
     void titleSideSessionOnce(ctx, store, {
-      sideSessionId: activeChildId,
-      parentSessionId: store.parentOf(activeChildId) ?? sessionId,
+      sideSessionId: following,
+      parentSessionId: store.parentOf(following) ?? sessionId,
       events: ownEvents,
     })
-  }, [loadedEvents, anchorSeq, activeChildId, ctx, store, sessionId])
+  }, [loadedEvents, anchorSeq, following, ctx, store, sessionId])
 
   // Anchor the initial view on the child's own first message (quote +
   // question), skipping past the inherited parent history. Position within OUR
@@ -256,7 +302,7 @@ export function AskPanel(props: AskPanelProps) {
   // Load the inherited (fork-seed) history upward, preserving the scroll
   // position, like the main conversation's "load older" paging.
   const loadOlder = async (): Promise<void> => {
-    if (activeChildId === null || loadingOlder || !hasOlder) return
+    if (following === null || loadingOlder || !hasOlder) return
     const first = loadedEvents[0]
     const throughSeq = cursorRef.current
     // Before the follow's opening frame there is no log cut to quote, so there
@@ -266,7 +312,7 @@ export function AskPanel(props: AskPanelProps) {
     try {
       const before = first.event.seq
       const result = await ctx.remote.session.page({
-        address: sessionAddress(activeChildId),
+        address: sessionAddress(following),
         throughSeq,
         beforeSeq: before,
         maxMessages: 60,
@@ -307,12 +353,16 @@ export function AskPanel(props: AskPanelProps) {
 
   const submit = async (): Promise<void> => {
     const q = question.trim()
-    if (q === '' || phase === 'asking') return
+    // A stale selection must never be pushed anywhere: `following` is null for
+    // it, and falling through to the new-ask branch would silently START a new
+    // follow-up from the parent while the user believes they are continuing the
+    // selected one. The composer is disabled in that state as well.
+    if (q === '' || phase === 'asking' || staleStatus) return
     setPhase('asking')
     setError(null)
     setStrategyNote(null)
     try {
-      if (activeChildId === null) {
+      if (following === null) {
         const result = await askFollowUp(
           ctx,
           store,
@@ -339,7 +389,7 @@ export function AskPanel(props: AskPanelProps) {
         consumeMeta()
         setPhase('answering')
       } else {
-        await sendFollowUp(ctx, activeChildId, q)
+        await sendFollowUp(ctx, following, q)
         setPhase('answering')
       }
       setQuestion('')
@@ -352,8 +402,9 @@ export function AskPanel(props: AskPanelProps) {
   const busy = phase === 'asking'
   // A parked quote only owns the view while no follow-up is selected: the
   // switcher can always return to an existing conversation, and the 新追问
-  // button returns to the parked quote (see resolveAskMode).
-  const mode = resolveAskMode(pendingQuote !== null, activeChildId)
+  // button returns to the parked quote (see resolveAskMode). A stale selection
+  // owns nothing — the panel refuses to follow it.
+  const mode = resolveAskMode(pendingQuote !== null, following)
 
   // Consume the cross-plugin quote channel once (send or cancel both count).
   // The adapter already marked the payload itself consumed, so this only stops
@@ -363,12 +414,19 @@ export function AskPanel(props: AskPanelProps) {
   }
 
   // Cancel a parked quote: clear both channels and return to the latest
-  // follow-up when one exists, else the empty hint.
+  // follow-up that can be read, else the empty hint.
   const clearQuote = (): void => {
     store.setPendingQuote(sessionId, null)
     consumeMeta()
-    const list = store.childrenOf(sessionId)
-    setActiveChildId(list.length > 0 ? (list[list.length - 1] ?? null) : null)
+    setActiveChildId(latestFollowableChild(ctx, store, sessionId))
+    setPhase('idle')
+    setError(null)
+  }
+
+  /** Drop a stale row (and its subtree) from this plugin's own mapping. */
+  const removeStale = (id: string): void => {
+    store.removeSession(id)
+    setActiveChildId(latestFollowableChild(ctx, store, sessionId))
     setPhase('idle')
     setError(null)
   }
@@ -377,17 +435,33 @@ export function AskPanel(props: AskPanelProps) {
     <div className={css.root}>
       {children.length > 0 && (
         <div className={css.switcher}>
-          {children.map((id) => (
-            <button
-              key={id}
-              type="button"
-              className={activeChildId === id ? `${css.switcherItem} ${css.switcherActive}` : css.switcherItem}
-              title={titleOf(ctx, id)}
-              onClick={() => { setActiveChildId(id); setPhase('idle'); setError(null) }}
-            >
-              {titleOf(ctx, id)}
-            </button>
-          ))}
+          {children.map((id) => {
+            // A row survives an archive/delete in DSH (it lives in this plugin's
+            // own mapping), so it is classified on every render: an unavailable
+            // conversation is shown, labelled and NOT clickable — exactly like a
+            // stale row in 追问记录, and it can never strand the panel on a
+            // transcript that cannot be read.
+            const availability = availabilityOf(id)
+            const stale = !isFollowable(availability)
+            const label = titleOf(ctx, id)
+            const statusLabel = availability === 'archived' ? t('histArchived') : t('histDeleted')
+            return (
+              <button
+                key={id}
+                type="button"
+                className={[
+                  css.switcherItem,
+                  activeChildId === id ? css.switcherActive : '',
+                  stale ? css.switcherStale : '',
+                ].filter(Boolean).join(' ')}
+                title={stale ? `${label} · ${statusLabel}` : label}
+                disabled={stale}
+                onClick={() => { setActiveChildId(id); setPhase('idle'); setError(null) }}
+              >
+                {stale ? `${label} · ${statusLabel}` : label}
+              </button>
+            )
+          })}
           <button
             type="button"
             className={css.newAsk}
@@ -399,17 +473,32 @@ export function AskPanel(props: AskPanelProps) {
       )}
 
       <div className={css.body} ref={scrollRef} onScroll={onScroll}>
-        {mode === 'conversation' && (
+        {staleStatus && activeChildId !== null && (
+          <div className={css.staleNotice}>
+            <div className={css.emptyHint}>
+              {activeAvailability === 'archived' ? t('askStaleArchived') : t('askStaleDeleted')}
+            </div>
+            <button
+              type="button"
+              className={css.staleRemove}
+              title={t('askStaleRemoveTitle')}
+              onClick={() => { removeStale(activeChildId) }}
+            >
+              {t('commonRemove')}
+            </button>
+          </div>
+        )}
+        {!staleStatus && mode === 'conversation' && (
           <Transcript
             rows={rows}
             running={activeRunning}
-            codeLabels={codeLabels}
+            labels={markdownLabels}
             anchorSeq={anchorSeq}
             anchorRef={anchorRowRef}
             hasOlder={hasOlder}
           />
         )}
-        {mode === 'start' && (
+        {!staleStatus && mode === 'start' && (
           <div className={css.startHint}>
             {pendingQuote !== null && pendingQuote.text !== ''
               ? (
@@ -424,7 +513,7 @@ export function AskPanel(props: AskPanelProps) {
               : <div className={css.emptyHint}>{t('askNoQuoteHint')}</div>}
           </div>
         )}
-        {mode === 'empty' && (
+        {mode === 'empty' && !staleStatus && (
           <div className={css.emptyHint}>{t('askEmptyHint')}</div>
         )}
       </div>
@@ -434,13 +523,16 @@ export function AskPanel(props: AskPanelProps) {
 
       {/* DSH-style composer card: the same capsule chrome as the main
           conversation's input bar — textarea on top, action row below
-          (strategy chip left; model seat + context meter + send right). */}
+          (strategy chip left; model seat + context meter + send right).
+          A stale selection leaves nothing to continue, so the composer is
+          disabled outright rather than silently retargeted at the parent. */}
       <div className={css.card}>
         <textarea
           ref={inputRef}
           className={css.input}
-          placeholder={t('askComposerPlaceholder')}
+          placeholder={staleStatus ? t('askStaleComposer') : t('askComposerPlaceholder')}
           value={question}
+          disabled={staleStatus}
           onChange={(event) => { setQuestion(event.target.value) }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -451,7 +543,7 @@ export function AskPanel(props: AskPanelProps) {
         />
         <div className={css.row}>
           <div className={css.tools}>
-            {activeChildId === null && (
+            {following === null && !staleStatus && (
               <StrategySelect value={strategy} disabled={busy} onChange={setStrategy} />
             )}
           </div>
@@ -462,7 +554,7 @@ export function AskPanel(props: AskPanelProps) {
               mode={seat.mode}
               value={seat.value}
               {...seat.hintKey === undefined ? {} : { hint: t(seat.hintKey) }}
-              disabled={busy}
+              disabled={busy || staleStatus}
               // Only a draft feeds `pendingModel`: a switch made on a child
               // session must not silently become the next new ask's model.
               onChange={seat.mode === 'draft' ? setPendingModel : undefined}
@@ -473,7 +565,7 @@ export function AskPanel(props: AskPanelProps) {
                 type="button"
                 className={css.primary}
                 aria-label={t('askSend')}
-                disabled={question.trim() === '' || busy}
+                disabled={question.trim() === '' || busy || staleStatus}
                 onClick={() => { void submit() }}
               >
                 {/* The host composer's send glyph (design 34:10465). */}
@@ -504,12 +596,12 @@ function Transcript({
   anchorSeq,
   anchorRef,
   hasOlder,
-  codeLabels,
+  labels,
 }: {
   rows: readonly TranscriptRow[]
   running: boolean
   /** Identity-stable per locale (see the AskPanel memo). */
-  codeLabels: { copyLabel: string; copiedLabel: string }
+  labels: MarkdownLabels
   anchorSeq: number | null
   anchorRef: RefObject<HTMLDivElement>
   hasOlder: boolean
@@ -534,7 +626,7 @@ function Transcript({
             )}
             {row.role === 'user'
               ? <UserRow text={row.text} />
-              : <AssistantRow text={row.text} streaming={streaming} codeLabels={codeLabels} />}
+              : <AssistantRow text={row.text} streaming={streaming} labels={labels} />}
           </div>
         )
       })}
@@ -543,16 +635,16 @@ function Transcript({
 }
 
 /** One assistant message: raw markdown, no card (mirrors the main conversation). */
-function AssistantRow({ text, streaming, codeLabels }: {
+function AssistantRow({ text, streaming, labels }: {
   text: string
   streaming: boolean
   /** Identity-stable per locale (see the AskPanel memo). */
-  codeLabels: { copyLabel: string; copiedLabel: string }
+  labels: MarkdownLabels
 }) {
   return (
     <div className={css.assistantRow}>
       <div className={css.assistantMarkdown}>
-        <MarkdownText text={text} streaming={streaming} codeLabels={codeLabels} />
+        <MarkdownText text={text} streaming={streaming} labels={labels} />
       </div>
     </div>
   )
@@ -570,6 +662,45 @@ function UserRow({ text }: { text: string }) {
         <div className={css.questionText}>{question}</div>
       </div>
     </div>
+  )
+}
+
+/**
+ * The archive set as this client knows it, read at call time.
+ *
+ * Read through the service rather than cached in state: the set is a
+ * registry-global HOST fact, and a panel that cached it would keep offering a
+ * conversation that has just been archived. Any failure reads as "nothing is
+ * archived", which is the same assumption the feature had before this guard —
+ * a read that cannot work must not disable the panel.
+ * @param ctx - the client plugin context.
+ * @returns the archived session ids.
+ */
+function archivedSetOf(ctx: Context): ReadonlySet<string> {
+  try {
+    return new Set(ctx.workspaces.list.getSnapshot().archivedSessionIds ?? [])
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * The follow-up to select after the current selection is gone: the newest one
+ * this client can still read, else null (the panel's "no follow-up selected"
+ * state). Reads the feeds at call time for the same reason {@link archivedSetOf}
+ * does.
+ * @param ctx - the client plugin context.
+ * @param store - the plugin's lineage store.
+ * @param sessionId - the session whose follow-ups are listed.
+ * @returns the id to select, or null.
+ */
+function latestFollowableChild(ctx: Context, store: SidebarqaStore, sessionId: string): string | null {
+  const feed = ctx.sessions.list.getSnapshot()
+  return lastFollowableFollowUp(
+    store.childrenOf(sessionId),
+    feed.byId,
+    archivedSetOf(ctx),
+    feed.phase === 'ready',
   )
 }
 

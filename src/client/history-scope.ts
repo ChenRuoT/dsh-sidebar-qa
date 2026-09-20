@@ -11,6 +11,12 @@
  * currently active session. A 追问 (follow-up) session is always created in
  * its parent's workspace, so a whole tree lives in exactly one workspace —
  * filtering on either end of an edge keeps that invariant.
+ *
+ * It is also the home of the two stale-session rules this plugin has: the
+ * history tab's row LABEL ({@link sessionStatus}, which may call an absent
+ * session deleted straight away) and the ask panel's follow-up AVAILABILITY
+ * ({@link followUpAvailability}, which must not disable a chip the feed has
+ * simply not hydrated yet).
  */
 import type { SidebarqaWorkspaceView } from '../context-types.ts'
 
@@ -104,6 +110,80 @@ export function sessionStatus(
   if (archivedSessionIds.has(sessionId)) return 'archived'
   if (byId[sessionId] === undefined) return 'gone'
   return 'live'
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Follow-up availability (the 追问 panel's switcher)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How reachable one of the 追问 panel's own follow-ups is.
+ *
+ * Deliberately NOT {@link SessionStatus}: a history ROW may label an absent
+ * session "已删除" the moment the feed does not list it, because a label is
+ * harmless. The ask panel would instead DISABLE a chip and REFUSE to follow it,
+ * so an id the feed merely has not hydrated yet (the list arrives
+ * asynchronously; `phase` is `pending` before the first pull) must stay usable —
+ * hence `unknown`, which behaves like `live`.
+ */
+export type FollowUpAvailability = 'live' | 'archived' | 'deleted' | 'unknown'
+
+/**
+ * Classify one follow-up for the ask panel: archived (a definitive host fact —
+ * the archive set is registry-global and arrives whole), live (listed),
+ * deleted (absent from a READY feed), or unknown (absent while the feed is still
+ * hydrating, which is not a verdict).
+ * @param sessionId - the follow-up session id.
+ * @param byId - the session feed's rows.
+ * @param archivedSessionIds - the registry-global archive set.
+ * @param feedReady - whether the session feed finished its first pull.
+ * @returns the availability.
+ */
+export function followUpAvailability(
+  sessionId: string,
+  byId: Readonly<Record<string, unknown>>,
+  archivedSessionIds: ReadonlySet<string>,
+  feedReady: boolean,
+): FollowUpAvailability {
+  if (archivedSessionIds.has(sessionId)) return 'archived'
+  if (byId[sessionId] !== undefined) return 'live'
+  return feedReady ? 'deleted' : 'unknown'
+}
+
+/**
+ * Whether the panel may FOLLOW (read the transcript of, continue, retitle) a
+ * follow-up in this state. Archived and deleted sessions cannot be read at all,
+ * so selecting one would only ever show an empty conversation.
+ * @param availability - the classification from {@link followUpAvailability}.
+ * @returns whether the follow-up is followable.
+ */
+export function isFollowable(availability: FollowUpAvailability): boolean {
+  return availability !== 'archived' && availability !== 'deleted'
+}
+
+/**
+ * The follow-up the panel selects by default: the NEWEST one it can actually
+ * follow, or null. Never the newest at any cost — defaulting onto an archived
+ * session is how the panel used to open onto a conversation it could not read.
+ * @param children - the session's follow-ups, in creation order.
+ * @param byId - the session feed's rows.
+ * @param archivedSessionIds - the registry-global archive set.
+ * @param feedReady - whether the session feed finished its first pull.
+ * @returns the id to select, or null when none is followable.
+ */
+export function lastFollowableFollowUp(
+  children: readonly string[],
+  byId: Readonly<Record<string, unknown>>,
+  archivedSessionIds: ReadonlySet<string>,
+  feedReady: boolean,
+): string | null {
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    const id = children[index]
+    if (id !== undefined && isFollowable(followUpAvailability(id, byId, archivedSessionIds, feedReady))) {
+      return id
+    }
+  }
+  return null
 }
 
 /**

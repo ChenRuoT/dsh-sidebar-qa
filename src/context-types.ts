@@ -27,7 +27,9 @@
  * a field (`current`) for three releases.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ComponentType } from 'react'
 import type { Context } from 'cordis'
+import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Host faces
@@ -752,6 +754,17 @@ export interface SidebarqaSidebarRightGuideEntry {
   title: () => string
   /** One line under the title on what picking the capsule opens. */
   description?: () => string
+  /**
+   * The capsule's glyph, drawn before the title (`SidebarRightGuideEntry.icon`,
+   * `ui-sidebar-right/src/client/tab-registry.ts:79`).
+   *
+   * Loading-bearing when ABSENT: the guide's capsule then draws its own cube
+   * placeholder (`tabs/guide/GuideBody.tsx:48,59`), which is what this plugin's
+   * two entries looked like until the field was restored here. `IconProps` is the
+   * host's own icon contract (`size` / `className`), imported rather than
+   * re-mirrored: the components passed here ARE host components.
+   */
+  icon?: ComponentType<IconProps>
 }
 
 /**

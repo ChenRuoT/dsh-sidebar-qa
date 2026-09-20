@@ -61,7 +61,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.2-alpha.2",
     "cordis": "^4.0.0-rc.8",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -76,7 +76,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.6-alpha.2",
     "@types/node": "^24.0.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.1",

@@ -6,8 +6,9 @@
  * re-localizes its whole subtree — which is why no component below a root may
  * be wrapped in `React.memo`, and why no `useMemo` may cache already-translated
  * text (cache the copy KEY instead; see `model-seat.ts`). The one exception is
- * `codeLabels` in `AskPanel`, which must be identity-stable per locale because
- * `MarkdownText` caches its component table on it.
+ * `markdownLabels` in `AskPanel` — MarkdownText's `labels` prop, renamed from the
+ * retired `codeLabels` before DSH 0.1.2-alpha.2 — which must be identity-stable
+ * per locale because `MarkdownText` caches its streaming render on it.
  *
  * The hook deliberately takes no `ctx`: `ConfigPanel` (rendered by the DSH
  * settings shell) and `SelectionPopover` (its own body root) never receive one,
@@ -25,5 +26,12 @@ import { activeLocaleId, subscribeLocale } from './locales.ts'
 export function useLocaleRevision(): string {
   // `subscribeLocale` / `activeLocaleId` are module-level function identities,
   // so they never need a useMemo/useCallback wrapper to stay stable.
-  return useSyncExternalStore(subscribeLocale, activeLocaleId)
+  //
+  // The third argument is the SERVER snapshot, and it is not optional in
+  // practice: without it React throws on any server render of a subtree that
+  // calls this hook ("Missing getServerSnapshot"), which would take out whole
+  // panels rendered outside a browser — and it makes the title seat untestable in
+  // the node environment. The active id is a stable primitive, so it is exactly
+  // the value a server render may read.
+  return useSyncExternalStore(subscribeLocale, activeLocaleId, activeLocaleId)
 }

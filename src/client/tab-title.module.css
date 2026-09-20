@@ -1,0 +1,13 @@
+/*
+ * The chip glyph registered in `sidebar.right.pane.tab.title`
+ * (`sidebar-native.ts`'s `titleFor`).
+ *
+ * Mirrors the guide type's own chip glyph (`ui-sidebar-right/tabs/guide/
+ * GuideTitle.tsx` + `GuideBody.module.css`): the strip lays the title component's
+ * children out in a row, so the glyph must not shrink, and it draws on
+ * `currentColor` like every other chip artifact — the ink is the strip's own.
+ */
+.titleIcon {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
