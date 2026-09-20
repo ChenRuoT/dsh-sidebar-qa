@@ -172,12 +172,12 @@ function TreeNode(props: {
           className={stale ? `${css.rowOpen} ${css.rowOpenDisabled}` : css.rowOpen}
           disabled={stale}
           onClick={() => {
-            ctx.sessions.open(id)
-            // Keep the tree the user was reading: the port lands (or focuses)
-            // this plugin's history tab in the target session's sidebar. The
-            // better-sidebar backend can target a session that is not on
-            // screen; the native backend opens in the surface now on screen,
-            // which after `sessions.open` is the same session.
+            // One call, not two. The occurrence's open makes the target session
+            // visible itself (see `show-session.ts`) and then lands this plugin's
+            // history tab in its sidebar, so the user keeps the tree they were
+            // reading. An earlier revision ALSO called `ctx.sessions.open(id)`
+            // here — a member that does not exist — which threw a TypeError and
+            // killed the jump before the tab could ever open.
             openHistory(id)
           }}        >
           {isRoot && <span className={css.dot} />}
@@ -249,8 +249,8 @@ function titleOf(ctx: Context, id: string): string {
 }
 
 /**
- * Jump into a conversation from the 追问记录 tree. `sessions.open` switches the
- * active conversation; landing this plugin's history tab in the target
- * session's sidebar is the PORT's job (see the row's click handler), because
- * only the adapter knows how its backend addresses a session.
+ * Jump into a conversation from the 追问记录 tree. Switching the active
+ * conversation and landing this plugin's history tab in the target session's
+ * sidebar are both `sidebar-native.ts`'s job (see the row's click handler): it is
+ * the module that knows how the right column addresses a session.
  */

@@ -148,7 +148,11 @@ export interface SidebarqaLoaderEntry {
     id: string
     /** The module specifier the row loads (NOT its identity). */
     name: string
-    config?: { trustedHosts?: string[] }
+    /**
+     * The row's raw config. `trustedHosts` may be an UNEVALUATED `!!js` node
+     * (`{ __jsExpr: … }`) rather than a list — see `trustedHostsOf`.
+     */
+    config?: { trustedHosts?: unknown }
   }
 }
 
@@ -290,20 +294,51 @@ export interface SidebarqaSessionListSnapshot {
   phase?: string
 }
 
-/** The client sessions service face (list feed + open + scope). */
+/**
+ * The client sessions service face (list feed + scope).
+ *
+ * There is deliberately no `open` here. An earlier revision of this mirror declared
+ * one, and `ISessions` (`api/session-controller/src/client/contract/sessions.ts:
+ * 32-161`) has no such member — so every call was either a `TypeError` (the
+ * HistoryPanel 跳转, which had no guard) or a silently skipped no-op (the two
+ * `typeof … !== 'function'` guards). The only public way to put a session on
+ * screen is {@link SidebarqaUiWorkspaceService}.
+ */
 export interface SidebarqaSessionsService {
   list: {
     getSnapshot(): SidebarqaSessionListSnapshot
     subscribe(fn: () => void): () => void
   }
-  open(id: string): void
   /**
    * Resolve an Agent-scoped context view for one listed session (use-and-discard).
-   * Returns undefined for a session neither listed nor already scoped.
+   * Returns undefined for a session neither listed nor already scoped: the scope is
+   * published by a React reconciliation, so it is NOT available in the same tick as
+   * a navigation.
    */
   scope(sessionId: string): Context | undefined
   /** Resolve the session face behind an Agent-scoped context (from {@link scope}). */
   sessionOf(ctx: Context): SidebarqaSessionFace | undefined
+}
+
+/**
+ * DSH's workspace service (`@deepseek-ai/dsh-client-ui-workspace`, published as
+ * `ctx.uiWorkspace`).
+ *
+ * Only the navigation entry this plugin needs is restated: it is the one public
+ * way to put a session on screen. Read with `ctx.get` rather than injected — a
+ * convenience must not be able to park this plugin's fiber.
+ */
+export interface SidebarqaUiWorkspaceService {
+  /**
+   * Make `target` the session the main pane retains.
+   *
+   * Synchronous (`ui-workspace/src/client/navigation.ts:161` → `replaceMain`): the
+   * session is retained and selected before this returns. The React surface showing
+   * it — and therefore the sidebar's session binding — arrives on a LATER commit,
+   * not in this tick.
+   * @param target - the session to show (a session id, or a subagent address).
+   */
+  openSession(target: string): void
 }
 
 /** One raw session event on the append feed. */
@@ -764,10 +799,31 @@ export interface SidebarqaSidebarRightService {
   /**
    * Open a page type by kind: the registered type, at the address this package
    * records pages under. Opening the same kind again reveals the existing tab.
+   *
+   * Acts on the binding published by the MOUNTED session's seat, and that binding
+   * is republished from a React `useEffect` — so a call issued in the same tick as
+   * a navigation still targets the session just LEFT, silently, because a stale
+   * binding does not throw.
    * @param kind - the page type's kind.
    * @param options - placement and the kind's navigation parameters.
    */
   openTab(kind: string, options?: SidebarqaSidebarRightOpenOptions): void
+  /**
+   * Open a kind in a NAMED session's right column.
+   *
+   * The Tab domain's own path (`ui-sidebar-right/src/client/service.ts:309-325`),
+   * used by DSH's own `ui-sidebar-terminal`. It addresses that session's store
+   * directly and does NOTHING while the store is not adopted, so unlike
+   * {@link openTab} it can never land in the wrong session — which makes it the
+   * only safe way to open immediately after a navigation.
+   *
+   * OPTIONAL: the source marks it "Not part of `ISidebarRight`", so it is probed
+   * structurally and an upstream without it falls back to a deferred `openTab`.
+   * @param sessionId - the session whose right column receives the tab.
+   * @param kind - the page type's kind.
+   * @param options - placement and the kind's navigation parameters.
+   */
+  openTabIn?(sessionId: string, kind: string, options?: SidebarqaSidebarRightOpenOptions): void
   /**
    * Focus a tab and the pane holding it, raising a floating one.
    * @param tabId - the tab; one that does not exist is left alone.
@@ -775,6 +831,28 @@ export interface SidebarqaSidebarRightService {
   focus(tabId: string): void
   /** Whether the column is currently showing its panel. */
   isExpanded(): boolean
+  /**
+   * The MOUNTED surface's active tab, or undefined when nothing is mounted.
+   *
+   * A READ, so it never throws the way a write without a surface does. This is what
+   * lets an open be CONFIRMED rather than assumed: `openTabIn` reports nothing, so a
+   * retry needs another way to learn whether it landed.
+   */
+  active?(): { kind?: string } | undefined
+}
+
+/**
+ * DSH's web-bundle runtime face (`webRuntime`, provided by
+ * `@deepseek-ai/dsh-bundle-web-app`).
+ *
+ * It carries the ALREADY-EVALUATED `trustedHosts` list — the very value the
+ * connection row's `trustedHosts: !!js ctx.webRuntime.trustedHosts` expression
+ * reads. See `trustedHostsOf` in `src/index.ts` for why reading the row's own
+ * config instead is not merely useless but dangerous.
+ */
+export interface SidebarqaWebRuntimeService {
+  /** Loopback/LAN authorities plus the deployment's `--trusted-host` extras. */
+  trustedHosts?: unknown
 }
 
 /**
@@ -855,8 +933,24 @@ declare module 'cordis' {
     sessionQuery: SidebarqaSessionQueryService
     llm: SidebarqaLlmService
     loader: SidebarqaLoader
+    /**
+     * The web bundle's runtime face. Client-agnostic and OPTIONAL: deployments
+     * that do not compose `@deepseek-ai/dsh-bundle-web-app` have no `webRuntime`,
+     * so it is read with `ctx.get` and every value is array-checked.
+     */
+    webRuntime: SidebarqaWebRuntimeService
     settings: SidebarqaSettingsService
     sessions: SidebarqaSessionsService
+    /**
+     * DSH's workspace service, the owner of "which session is on screen".
+     *
+     * Client side only, and OPTIONAL: read with `ctx.get('uiWorkspace')` and guard
+     * the result, like `conversation` and the sidebar services. Everything that
+     * needs a session made visible degrades to "leave the current session alone"
+     * without it — which is strictly better than parking the fiber, because a parked
+     * fiber fails the entire web boot.
+     */
+    uiWorkspace: SidebarqaUiWorkspaceService
     /**
      * The typed client Remote service (DSH ≥ the `own RPC transport
      * contracts` refactor). It replaced `ctx.connection.api`, whose `api`

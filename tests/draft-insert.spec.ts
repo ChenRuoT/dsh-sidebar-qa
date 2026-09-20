@@ -62,9 +62,10 @@ function sessionListOf(currentSessionId: string | undefined): {
 /**
  * Build a ctx whose `scope`/`get` behavior each test can bend.
  *
- * The sessions slice carries a real list feed and an `open`, because the write
- * path makes its target session visible first: reaching a composer needs that
- * session's Agent scope, and a scope exists only for a mounted session.
+ * The sessions slice carries a real list feed, because the write path may have to
+ * make its target session visible first: reaching a composer needs that session's
+ * Agent scope, and a scope exists only for a mounted session. Navigation itself
+ * lives on `uiWorkspace`, not on the sessions service.
  */
 function makeCtx(options: {
   input?: FakeInput
@@ -93,10 +94,16 @@ function makeCtx(options: {
   return {
     sessions: {
       scope: () => scoped,
-      open: () => {},
       list: { getSnapshot: () => sessionListOf(currentSession ?? undefined) },
     },
-    get: (name: string) => (name === 'conversation' ? conversation : undefined),
+    get: (name: string) => {
+      if (name === 'conversation') return conversation
+      // Switching the shown session goes through DSH's workspace service, NOT the
+      // sessions service (which has no navigation entry at all). Tests that care
+      // about it build their own ctx — see `ctxWithCurrent`.
+      if (name === 'uiWorkspace') return { openSession: () => {} }
+      return undefined
+    },
   } as unknown as Context
 }
 
@@ -251,41 +258,53 @@ describe('insertQuoteIntoComposer — focus degradation', () => {
 })
 
 describe('insertQuoteIntoComposer — making the target session visible', () => {
-  /** A ctx whose session feed reports `current` and records `open` calls. */
+  /**
+   * A ctx whose session feed reports `current` and whose workspace service records
+   * its navigations.
+   *
+   * The double mirrors the one behaviour the callers depend on: DSH's
+   * `retain(target, { source: 'mainView' })` is SYNCHRONOUS, so the feed reports the
+   * target as the main-view session the moment `openSession` returns.
+   */
   function ctxWithCurrent(scopeFor: (id: string) => unknown, current: string) {
-    const opened: string[] = []
+    const switched: string[] = []
+    let reported = current
     const ctx = {
       sessions: {
         scope: scopeFor,
-        open: (id: string) => { opened.push(id) },
-        list: { getSnapshot: () => sessionListOf(current) },
+        list: { getSnapshot: () => sessionListOf(reported) },
       },
-      get: () => ({
-        input: {
-          for: () => ({
-            state: { getSnapshot: () => ({ draft: '' }) },
-            setDraft: () => {},
-            editor: undefined,
-          }),
-        },
-      }),
+      get: (name: string) => {
+        if (name === 'uiWorkspace') {
+          return { openSession: (id: string) => { switched.push(id); reported = id } }
+        }
+        return {
+          input: {
+            for: () => ({
+              state: { getSnapshot: () => ({ draft: '' }) },
+              setDraft: () => {},
+              editor: undefined,
+            }),
+          },
+        }
+      },
     } as unknown as Context
-    return { ctx, opened }
+    return { ctx, switched }
   }
 
   it('switches to the quoted session when it is not the one on screen', () => {
     // Reaching a composer needs that session's Agent scope, and a scope is
-    // retained only while the session is mounted — so the button makes its
-    // target current rather than refusing.
-    const { ctx, opened } = ctxWithCurrent(() => ({}), 'other')
+    // retained only while the session is mounted — so the button makes its target
+    // current rather than refusing.
+    const { ctx, switched } = ctxWithCurrent(() => ({}), 'other')
     expect(insertQuoteIntoComposer(ctx, 's9', 'x').ok).toBe(true)
-    expect(opened).toEqual(['s9'])
+    expect(switched).toEqual(['s9'])
   })
 
   it('does not switch when the quoted session is already current', () => {
-    const { ctx, opened } = ctxWithCurrent(() => ({}), 's9')
+    const { ctx, switched } = ctxWithCurrent(() => ({}), 's9')
     expect(insertQuoteIntoComposer(ctx, 's9', 'x').ok).toBe(true)
-    expect(opened).toEqual([])
+    expect(switched).toEqual([])
   })
 
   it('survives a missing client sessions service', () => {
@@ -309,37 +328,41 @@ describe('insertQuoteIntoComposerDeferred', () => {
     }
   }
 
-  it('retries once on the next frame when the scope is not retained yet', () => {
-    // `sessions.open` makes a session current, but its Agent scope is retained by
-    // a React reconciliation — so an immediate attempt can still miss it and the
-    // user would see nothing happen.
+  it('retries on the next frame when the target is not reachable yet', () => {
+    // An immediate attempt can still miss — a session whose scope the controller
+    // has not published, or a feed that has not named a current session — so a
+    // failed attempt is deferred rather than reported as a dead click.
     const frame = withFrame()
     let retained = false
-    const opened: string[] = []
+    let current = 'other'
+    const switched: string[] = []
     const ctx = {
       sessions: {
         scope: () => (retained ? {} : undefined),
-        open: (id: string) => { opened.push(id) },
-        list: { getSnapshot: () => sessionListOf('other') },
+        list: { getSnapshot: () => sessionListOf(current) },
       },
-      get: () => ({
-        input: {
-          for: () => ({
-            state: { getSnapshot: () => ({ draft: '' }) },
-            setDraft: () => {},
-            editor: undefined,
-          }),
-        },
-      }),
+      get: (name: string) => (name === 'uiWorkspace'
+        ? { openSession: (id: string) => { switched.push(id); current = id } }
+        : {
+          input: {
+            for: () => ({
+              state: { getSnapshot: () => ({ draft: '' }) },
+              setDraft: () => {},
+              editor: undefined,
+            }),
+          },
+        }),
     } as unknown as Context
 
     insertQuoteIntoComposerDeferred(ctx, 's1', 'x')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('first attempt'))
-    expect(opened).toEqual(['s1'])
+    // A retryable miss is deliberately NOT reported: the retry may still land, and a
+    // successful cross-session insert must not log a failure on its way in.
+    expect(warn).not.toHaveBeenCalled()
+    expect(switched).toEqual(['s1'])
 
     retained = true
     frame.flush()
-    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).not.toHaveBeenCalled()
     frame.restore()
   })
 
@@ -353,27 +376,31 @@ describe('insertQuoteIntoComposerDeferred', () => {
     const ctx = {
       sessions: {
         scope: () => ({}),
-        open: () => {},
         list: { getSnapshot: () => sessionListOf(current) },
       },
-      get: () => ({
-        input: {
-          for: () => ({
-            state: { getSnapshot: () => ({ draft: '' }) },
-            setDraft,
-            editor: undefined,
-          }),
-        },
-      }),
+      get: (name: string) => (name === 'uiWorkspace'
+        ? { openSession: () => {} }
+        : {
+          input: {
+            for: () => ({
+              state: { getSnapshot: () => ({ draft: '' }) },
+              setDraft,
+              editor: undefined,
+            }),
+          },
+        }),
     } as unknown as Context
 
     insertQuoteIntoComposerDeferred(ctx, '', 'x')
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('missing-session'))
     expect(setDraft).not.toHaveBeenCalled()
+    // Nothing is reported while a retry is still available.
+    expect(warn).not.toHaveBeenCalled()
 
     current = 's1'
     frame.flush()
     expect(setDraft).toHaveBeenCalledWith('> x\n\n')
+    // It recovered, so the console stays clean.
+    expect(warn).not.toHaveBeenCalled()
     frame.restore()
   })
 

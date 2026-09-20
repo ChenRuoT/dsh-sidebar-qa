@@ -9,25 +9,29 @@
  *
  * ## Two moving parts, both asynchronous
  *
- * 1. **The session identity.** The selection records whatever
- *    `sessions.list.getSnapshot().current` held at DRAG time, and that feed
- *    fills in from the Host — a selection made in the first moments after load
- *    can carry an empty id. The id therefore has to be re-resolved at write
- *    time rather than trusted.
+ * 1. **The session identity.** The selection records whatever the session feed
+ *    reported as current at DRAG time, and that feed fills in from the Host — a
+ *    selection made in the first moments after load can carry an empty id. The id
+ *    therefore has to be re-resolved at write time rather than trusted.
  * 2. **The Agent scope.** `ctx.sessions.scope(id)` BORROWS an already-retained
  *    scoped context and returns undefined for a session that is not currently
  *    mounted (`session-controller/src/client/sessions/service.ts:502` —
  *    `this.scopes.get(id)`), and the composer facade is resolved from that
- *    context. `sessions.open` makes a session current, but its scope is retained
- *    by a React reconciliation rather than synchronously.
+ *    context. `showSessionFirst` (see `show-session.ts`) retains that scope
+ *    SYNCHRONOUSLY (`retain` → `retainScope` → `this.scopes.set`), so a successful
+ *    navigation does not itself need a wait.
  *
- * So the write is retried once on the next frame for BOTH reasons — including an
- * empty id, which an earlier revision treated as unrecoverable and thus skipped
- * the retry that would have fixed it.
+ * The remaining reason to defer is narrower: the id may be empty while the session
+ * feed has not filled in yet, and `uiWorkspace.openSession` throws `unknown session`
+ * for an id the controller cannot resolve — a session that is not in the Host list
+ * yet, in the first moments after load. Both can be cured by the next frame, so the
+ * write is retried over a few. That includes the empty id, which an earlier revision
+ * treated as unrecoverable and thus skipped the retry that would have fixed it.
  */
 import type { Context, SidebarqaSessionInput } from '../context-types.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
 import { planQuoteInsert } from './quote-draft.ts'
+import { showSessionFirst } from './show-session.ts'
 
 /** Why an insert could not happen, for the caller's diagnostics. */
 export type ComposerInsertFailure =
@@ -35,6 +39,9 @@ export type ComposerInsertFailure =
   | 'no-conversation-service'
   | 'scope-unavailable'
   | 'threw'
+
+/** How many frames a deferred composer write may wait for its session to mount. */
+const RETRY_FRAMES = 3
 
 /** What one insert attempt did. */
 export interface ComposerInsertResult {
@@ -67,26 +74,29 @@ export function insertQuoteIntoComposer(ctx: Context, sessionId: string, text: s
 }
 
 /**
- * Retry the write once on the next frame.
+ * Retry the write over a few frames.
  *
- * Both failure modes this can fix are asynchronous: the session feed may not
- * have named a current session yet, and a scope is retained by a React
- * reconciliation rather than by `sessions.open` itself. One deferred attempt
- * covers them without turning a click into a polling loop.
+ * The failure modes this can fix are both about the session FEED rather than the
+ * scope: an empty recorded id, and a target the controller cannot resolve yet. A
+ * bounded loop covers them without turning a click into a polling loop.
  * @param ctx - the plugin's activation context.
  * @param sessionId - the session whose composer receives the quote (may be empty).
  * @param text - the raw selected text.
  */
 export function insertQuoteIntoComposerDeferred(ctx: Context, sessionId: string, text: string): void {
-  const result = insertQuoteIntoComposer(ctx, sessionId, text)
-  if (result.ok) return
-  report(result, sessionId, 'first attempt')
-  if (result.failure === 'no-conversation-service' || result.failure === 'threw') return
-  if (typeof requestAnimationFrame !== 'function') return
-  requestAnimationFrame(() => {
-    const retry = insertQuoteIntoComposer(ctx, sessionId, text)
-    if (!retry.ok) report(retry, sessionId, 'retry')
-  })
+  const attempt = (framesLeft: number): void => {
+    const result = insertQuoteIntoComposer(ctx, sessionId, text)
+    if (result.ok) return
+    const retryable = result.failure === 'missing-session' || result.failure === 'scope-unavailable'
+    if (retryable && framesLeft > 0 && typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => { attempt(framesLeft - 1) })
+      return
+    }
+    // Reported only when it is the LAST attempt, so a normal cross-session insert
+    // does not log a spurious failure on its way in.
+    report(result, sessionId, framesLeft === RETRY_FRAMES ? 'first attempt' : 'retry')
+  }
+  attempt(RETRY_FRAMES)
 }
 
 /**
@@ -138,23 +148,6 @@ function attemptInsert(ctx: Context, sessionId: string, text: string): ComposerI
   } catch (error) {
     console.warn('[dsh-sidebar-qa] composer insert failed:', error)
     return { ok: false, failure: 'threw', error }
-  }
-}
-
-/**
- * Put `sessionId` on screen when it is not already the current session, so its
- * Agent scope is retained and its composer facade resolvable.
- * @param ctx - the plugin's activation context.
- * @param sessionId - the session the quote belongs to.
- */
-function showSessionFirst(ctx: Context, sessionId: string): void {
-  const sessions = ctx.sessions
-  if (sessions === undefined || typeof sessions.open !== 'function') return
-  try {
-    if (resolveCurrentSessionId(sessions.list.getSnapshot()) === sessionId) return
-    sessions.open(sessionId)
-  } catch (error) {
-    console.warn('[dsh-sidebar-qa] switching to the target session failed:', error)
   }
 }
 

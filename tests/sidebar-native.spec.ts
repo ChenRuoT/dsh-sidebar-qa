@@ -75,16 +75,35 @@ function fakeNative(opts: { openTabThrows?: boolean } = {}) {
   }
 }
 
+/** The session list the double reports; mutable so a navigation can change it. */
+interface FakeList {
+  ids: string[]
+  byId: Record<string, { id: string; retainedBy?: Record<string, number> }>
+}
+
 /** A cordis context double exposing exactly what the installer touches. */
 function fakeCtx(
   services: Record<string, unknown> = {},
-  list: unknown = { ids: [], byId: {} },
+  initial: Partial<FakeList> = {},
 ) {
   const cleanups: Array<() => void> = []
   const serviceListeners: Array<() => void> = []
-  const open = vi.fn()
+  const list: FakeList = { ids: initial.ids ?? [], byId: initial.byId ?? {} }
+  /**
+   * The workspace navigation entry — the ONLY way a session changes on screen, since
+   * `ISessions` has no `open` at all.
+   *
+   * The double mirrors the real `retain(target, { source: 'mainView' })` in the one
+   * respect callers depend on: it is SYNCHRONOUS, so the feed reports the target as
+   * the main-view session the moment this returns.
+   */
+  const openSession = vi.fn((sessionId: string) => {
+    for (const row of Object.values(list.byId)) row.retainedBy = {}
+    list.byId[sessionId] = { id: sessionId, retainedBy: { mainView: 1 } }
+    if (!list.ids.includes(sessionId)) list.ids.push(sessionId)
+  })
   const ctx = {
-    get: (name: string) => services[name],
+    get: (name: string) => (name === 'uiWorkspace' ? { openSession } : services[name]),
     effect: (fn: () => void | (() => void)) => {
       const cleanup = fn()
       if (typeof cleanup === 'function') cleanups.push(cleanup)
@@ -98,12 +117,12 @@ function fakeCtx(
     },
     sessions: {
       list: { getSnapshot: () => list, subscribe: () => () => {} },
-      open,
     },
   } as unknown as Context
   return {
     ctx,
-    open,
+    /** The `uiWorkspace.openSession` spy. */
+    switchTo: openSession,
     /** Make a service visible, as `provide` does before it notifies. */
     provide(provided: Record<string, unknown>): void {
       Object.assign(services, provided)
@@ -288,8 +307,25 @@ describe('installSidebarTabs', () => {
 
     // `openTab` acts on the MOUNTED session surface and throws without one, so a
     // quote captured against a session the user has since left needs this first.
-    expect(h.open).toHaveBeenCalledWith('s-target')
+    expect(h.switchTo).toHaveBeenCalledWith('s-target')
     expect(native.opened).toHaveLength(1)
+  })
+
+  it('opens through the Tab domain when the target session had to be navigated to', () => {
+    // A plain `openTab` issued right after a navigation targets the session just
+    // LEFT, and does so silently: the right column's binding is republished from a
+    // React effect, and a stale binding does not throw. `openTabIn` addresses a
+    // session's own store and no-ops while it is not adopted, so it can never land
+    // in the wrong place.
+    const native = fakeNative()
+    const openTabIn = vi.fn()
+    native.sidebar.openTabIn = openTabIn
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] }).openAsk({ sessionId: 's-target' })
+
+    expect(h.switchTo).toHaveBeenCalledWith('s-target')
+    expect(openTabIn).toHaveBeenCalledWith('s-target', 'ask', undefined)
+    expect(native.opened).toHaveLength(0)
   })
 
   it('does not switch when the target is already the session on screen', () => {
@@ -300,7 +336,7 @@ describe('installSidebarTabs', () => {
     })
     installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] }).openAsk({ sessionId: 's1' })
 
-    expect(h.open).not.toHaveBeenCalled()
+    expect(h.switchTo).not.toHaveBeenCalled()
     expect(native.opened).toHaveLength(1)
   })
 
@@ -446,7 +482,7 @@ describe('the body the seat renders', () => {
     const panel = harness('history')
     panel.occurrenceOf(undefined, 1).openHistory({ sessionId: 's2' })
 
-    expect(panel.h.open).toHaveBeenCalledWith('s2')
+    expect(panel.h.switchTo).toHaveBeenCalledWith('s2')
     const history = panel.native.types.find(type => type.id === HISTORY_ID)
     expect(panel.native.opened[0]?.kind).toBe(history?.kind)
   })

@@ -74,7 +74,15 @@ import type {
   SidebarqaTabOccurrence,
 } from '../context-types.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
+import { showSessionFirst } from './show-session.ts'
 import { useLocaleRevision } from './use-locale.ts'
+
+/**
+ * How many frames an open may wait for its target's session surface to mount.
+ * Roughly 100ms: long enough for the navigation that preceded it to reach a React
+ * commit, short enough that the confirmation check cannot race a user's own click.
+ */
+const OPEN_RETRY_FRAMES = 6
 
 // ────────────────────────────────────────────────────────────────────────────
 // What a tab is
@@ -376,29 +384,6 @@ export interface SidebarOpener {
 }
 
 /**
- * Put `sessionId` on screen before an open, when it is not already there.
- *
- * The navigation face acts on the session surface that is MOUNTED: `openTab`
- * resolves the bound seat and throws `sidebarRight: no session surface is
- * mounted` when there is none, and it only ever reaches the session that seat
- * belongs to. A quote can belong to a session other than the visible one (the
- * selection is captured against the active session, and the user may switch
- * before clicking), so the open must make its target visible first.
- *
- * Best-effort by design: this is a nicety in front of the actual open, so a
- * deployment whose feed cannot say what is current must not lose the open over it.
- * @param ctx - the client plugin context.
- * @param sessionId - the session the open belongs to.
- */
-function showSessionFirst(ctx: Context, sessionId: string): void {
-  if (sessionId === '') return
-  const sessions = ctx.sessions
-  if (sessions === undefined || typeof sessions.open !== 'function') return
-  if (resolveCurrentSessionId(sessions.list.getSnapshot()) === sessionId) return
-  sessions.open(sessionId)
-}
-
-/**
  * Contribute this plugin's tabs to DSH's right column, as soon as it exists.
  *
  * The contribution is owned by this plugin's effect, so it unregisters with the
@@ -423,25 +408,91 @@ export function installSidebarTabs(ctx: Context, opts: { tabs: readonly SidebarT
   /** Set once a sidebar was found, so later service arrivals are ignored. */
   let settled = false
 
-  /** Open one of this plugin's tabs, after making its session visible. */
+  /** Open a tab in the session already on screen (the contract path). */
+  const openNow = (kind: string, params: Record<string, unknown> | undefined): void => {
+    const mounted = services
+    if (mounted === undefined) return
+    try {
+      mounted.sidebar.openTab(kind, params === undefined ? undefined : { params })
+    } catch (error) {
+      // Opening is a UI gesture whose failure is otherwise invisible: the popover
+      // has already closed itself by the time this runs, so an escaping error looks
+      // exactly like "the button did nothing".
+      console.warn('[dsh-sidebar-qa] opening the sidebar tab failed:', error)
+    }
+  }
+
+  /**
+   * Open a tab in `sessionId`'s right column, across a few frames.
+   *
+   * Needed ONLY when a navigation precedes the open, because the navigation face
+   * acts on the binding published by the seat MOUNTED for the session on screen —
+   * and that binding is republished from a React `useEffect`. A plain `openTab`
+   * issued right after the switch therefore still targets the session we LEFT, and
+   * does so SILENTLY, since a stale binding does not throw. Waiting without a signal
+   * cannot be made exact, so this uses the primitive that cannot be wrong:
+   * `openTabIn(sessionId, …)` addresses that session's store directly and does
+   * nothing while the store is not adopted. It reports nothing, so it is re-issued
+   * across the budget — re-opening the same kind only reveals the tab that is
+   * already there — and confirmed through `active()`, a read that cannot throw.
+   *
+   * A host without `openTabIn` (it is not on the frozen `ISidebarRight` face) waits
+   * the same budget out and then falls back to `openTab`, guarded by a check that no
+   * later navigation has taken over.
+   */
+  const openInSession = (
+    sessionId: string,
+    kind: string,
+    params: Record<string, unknown> | undefined,
+    framesLeft: number,
+  ): void => {
+    const mounted = services
+    if (mounted === undefined) return
+    const options = params === undefined ? undefined : { params }
+    const openIn = mounted.sidebar.openTabIn
+
+    if (typeof openIn !== 'function') {
+      if (framesLeft > 0 && typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => { openInSession(sessionId, kind, params, framesLeft - 1) })
+        return
+      }
+      // Superseded by a later navigation: opening now would place the tab in
+      // whatever is on screen instead, which is worse than not opening at all.
+      if (resolveCurrentSessionId(ctx.sessions.list.getSnapshot()) !== sessionId) return
+      openNow(kind, params)
+      return
+    }
+
+    openIn.call(mounted.sidebar, sessionId, kind, options)
+    if (framesLeft <= 0) {
+      // `openTabIn` is silent, so `active()` is the only confirmation available.
+      // Without it, a tab that never appeared would be indistinguishable from a
+      // click that did nothing — the failure mode this plugin keeps re-learning.
+      if (mounted.sidebar.active?.()?.kind !== kind) {
+        console.warn(`[dsh-sidebar-qa] the ${kind} tab did not open in session ${sessionId}.`)
+      }
+      return
+    }
+    if (typeof requestAnimationFrame !== 'function') return
+    requestAnimationFrame(() => { openInSession(sessionId, kind, params, framesLeft - 1) })
+  }
+
+  /** Open one of this plugin's tabs in its target session's sidebar. */
   const openRole = (role: SidebarTabRole, scope: { sessionId: string }, quote?: unknown): void => {
     const kind = kindByRole.get(role)
     if (kind === undefined) {
       console.warn(`[dsh-sidebar-qa] the ${role} tab is not registered; nothing to open.`)
       return
     }
-    // Opening is a UI gesture whose failure is otherwise invisible: the popover
-    // has already closed itself by the time this runs, so an escaping error looks
-    // exactly like "the button did nothing". `openTab` also throws
-    // `sidebarRight: no session surface is mounted` whenever no session surface
-    // is mounted, which is a real state rather than a bug.
+    const params = quote === undefined ? undefined : nativeAskParams(quote)
+    let switched = false
     try {
-      showSessionFirst(ctx, scope.sessionId)
-      const params = quote === undefined ? undefined : nativeAskParams(quote)
-      services?.sidebar.openTab(kind, params === undefined ? undefined : { params })
+      switched = showSessionFirst(ctx, scope.sessionId)
     } catch (error) {
-      console.warn('[dsh-sidebar-qa] opening the sidebar tab failed:', error)
+      console.warn('[dsh-sidebar-qa] switching to the target session failed:', error)
     }
+    if (switched) openInSession(scope.sessionId, kind, params, OPEN_RETRY_FRAMES)
+    else openNow(kind, params)
   }
 
   const installIfPossible = (): void => {

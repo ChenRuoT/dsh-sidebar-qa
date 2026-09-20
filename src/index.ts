@@ -137,21 +137,36 @@ function userMessage(text: string): SidebarqaLlmMessage {
 }
 
 /**
- * The connection row's resolved trustedHosts (live read; the /api fence's own list).
+ * The non-loopback authorities this deployment serves, for the /api trust fence.
  *
- * Matched on the row's `id`, NOT on `name`: the web-app bundle mounts that row as
+ * Matched on the row's `id`, not on `name`: the web-app bundle mounts that row as
  * `id: connection` with `name: '@deepseek-ai/dsh-client-connection'`
- * (`packages/bundle/web-app/cordis.patch.yml`), so a `name === 'connection'` test
- * never matched anything. This function therefore always returned an empty list,
- * which silently reduced the /api fence to loopback-only for every LAN or
- * custom-Host browser — with no error anywhere.
+ * (`packages/bundle/web-app/cordis.patch.yml`), so the `name === 'connection'` test
+ * this used to do never matched anything and the fence silently degraded to
+ * loopback-only for every LAN or custom-Host browser.
+ *
+ * The PRIMARY source is `webRuntime.trustedHosts`, because the row's own config is
+ * NOT a list: the shipped patch declares `trustedHosts: !!js ctx.webRuntime.
+ * trustedHosts`, and `entry.options.config` keeps that expression UNEVALUATED
+ * (evaluation happens in the loader's `internal/config` hook, against the fiber's
+ * config). Reading it as if it were an array is worse than not reading it at all —
+ * a non-array reaches `isTrustedAuthority`'s `.some()` and throws, and the fence
+ * runs outside the route's try/catch, so the request would HANG rather than answer.
+ * Hence the array check on every source, including the row fallback kept for a
+ * deployment whose patch layer replaced the expression with a literal list.
+ * @param ctx - the host plugin context.
+ * @returns the trusted authorities; `[]` means loopback-only.
  */
 function trustedHostsOf(ctx: Context): string[] {
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+
+  const fromRuntime = strings(ctx.get('webRuntime')?.trustedHosts)
+  if (fromRuntime.length > 0) return fromRuntime
+
   for (const entry of ctx.loader.entries()) {
-    if (entry.options.id === 'connection') {
-      const config = entry.options.config as { trustedHosts?: string[] } | undefined
-      return config?.trustedHosts ?? []
-    }
+    if (entry.options.id !== 'connection') continue
+    return strings(entry.options.config?.trustedHosts)
   }
   return []
 }
@@ -344,7 +359,17 @@ function buildApi(
  * @param ctx - host plugin context (webServer, sessionQuery, llm, loader).
  */
 export function apply(ctx: Context): void {
-  const fence = (req: IncomingMessage): boolean => isTrustedApiRequest(req, trustedHostsOf(ctx))
+  // A refusal, never a hang: the fence runs outside the route's try/catch, so
+  // anything thrown in here would leave the response unwritten and the request
+  // pending forever. Deny instead — the safe direction for a trust check.
+  const fence = (req: IncomingMessage): boolean => {
+    try {
+      return isTrustedApiRequest(req, trustedHostsOf(ctx))
+    } catch (error) {
+      console.warn('[dsh-sidebar-qa] the /api trust fence failed; refusing the request:', error)
+      return false
+    }
+  }
 
   // ── User-editable configuration ───────────────────────────────────────────
   // The `sidebarqa` namespace is optional: deployments without a settings service

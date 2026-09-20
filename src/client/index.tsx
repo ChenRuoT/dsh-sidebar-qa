@@ -149,10 +149,9 @@ export function apply(ctx: Context): void {
   // Returns false when the composer could not be reached, so the popover keeps
   // the selection and 提问 stays one click away.
   //
-  // It runs DEFERRED because reaching the composer needs the session's Agent
-  // scope, which is retained by a React reconciliation: when the quote belongs
-  // to a session that is not the one on screen, `sessions.open` makes it visible
-  // only on the next frame.
+  // It runs DEFERRED because the session FEED may not have named a current session
+  // yet, and because `uiWorkspace.openSession` refuses an id the controller cannot
+  // resolve — both of which the next frame can cure.
   const onAddToConversation = (quote: PendingQuote, sessionId: string): boolean => {
     insertQuoteIntoComposerDeferred(ctx, sessionId, quote.text)
     return true
