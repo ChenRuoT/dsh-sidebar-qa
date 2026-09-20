@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SidebarqaHistoryEntry, SidebarqaHistoryRecord } from '../src/context-types.ts'
 import {
-  eventsOfChunkRun,
   eventsOfRecords,
   mergeEntries,
   mintRequestId,
@@ -13,18 +12,6 @@ import {
 
 function entry(seq: number, type = 'user/message'): SidebarqaHistoryEntry {
   return { event: { type, seq, time: 0, data: {} } }
-}
-
-function textRun(texts: string[], dt: number[] = []): SidebarqaHistoryRecord {
-  return {
-    type: 'chunks',
-    event: {
-      type: 'chunkrow/text-chunks',
-      seq: 10,
-      time: 100,
-      data: { turn: 1, step: 2, index: 0, dt, texts },
-    },
-  }
 }
 
 describe('sessionAddress', () => {
@@ -65,56 +52,18 @@ describe('mintRequestId', () => {
   })
 })
 
-describe('eventsOfChunkRun', () => {
-  it('expands a text run into one assistant/chunk per member', () => {
-    expect(eventsOfChunkRun(textRun(['a', 'b', 'c'], [5, 7]).event as never)).toEqual([
-      { type: 'assistant/chunk', seq: 10, time: 100, data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'a' } } },
-      { type: 'assistant/chunk', seq: 11, time: 105, data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'b' } } },
-      { type: 'assistant/chunk', seq: 12, time: 112, data: { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'c' } } },
-    ])
-  })
-
-  it('maps a reasoning run to reasoning-delta chunks', () => {
-    const events = eventsOfChunkRun({
-      type: 'chunkrow/reasoning-chunks',
-      seq: 3,
-      time: 0,
-      data: { turn: 0, step: 0, index: 1, dt: [], texts: ['why'] },
-    })
-    expect(events[0]?.data).toEqual({ turn: 0, step: 0, chunk: { type: 'reasoning-delta', index: 1, text: 'why' } })
-  })
-
-  it('maps a tool-call run to tool-call-delta chunks, carrying an optional name', () => {
-    const events = eventsOfChunkRun({
-      type: 'chunkrow/tool-call-chunks',
-      seq: 4,
-      time: 0,
-      data: { turn: 0, step: 0, index: 0, dt: [], id: 'call-1', name: 'read', args: ['{"a', '":1}'] },
-    })
-    expect(events.map(event => event.data)).toEqual([
-      { turn: 0, step: 0, chunk: { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'read', argumentsDelta: '{"a' } },
-      { turn: 0, step: 0, chunk: { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'read', argumentsDelta: '":1}' } },
-    ])
-  })
-
-  it('yields nothing for a run without members, and treats a missing dt as no gap', () => {
-    expect(eventsOfChunkRun({ type: 'chunkrow/text-chunks', seq: 0, time: 0, data: {} })).toEqual([])
-    const events = eventsOfChunkRun(textRun(['a', 'b']).event as never)
-    expect(events.map(event => event.time)).toEqual([100, 100])
-  })
-})
-
 describe('eventsOfRecords', () => {
-  it('passes scalar records through and expands packed runs in place', () => {
+  it('passes every scalar record through in order', () => {
+    // The wire carries scalar events and nothing else
+    // (`SessionHistoryRecord = SessionEventEntry`), so this is a faithful map. It
+    // used to also expand a `{ type: 'chunks' }` record that does not exist
+    // upstream, which made the expansion unreachable code.
     const records: SidebarqaHistoryRecord[] = [
       { type: 'event', event: { type: 'user/message', seq: 9, time: 0, data: {} } },
-      textRun(['a', 'b']),
       { type: 'event', event: { type: 'assistant/message', seq: 12, time: 0, data: {} } },
     ]
     expect(eventsOfRecords(records).map(item => [item.event.type, item.event.seq])).toEqual([
       ['user/message', 9],
-      ['assistant/chunk', 10],
-      ['assistant/chunk', 11],
       ['assistant/message', 12],
     ])
   })

@@ -177,25 +177,31 @@ function report(result: ComposerInsertResult, sessionId: string, phase: string):
 }
 
 /**
- * Take DOM focus — `setDraft` never does. Its own try/catch: a focus failure
+ * Take composer focus — `setDraft` never does. Its own try/catch: a focus failure
  * must not report an already-landed draft write as a failure.
+ *
+ * Prefers the public `input.focus()`, which upstream implements as exactly the two
+ * calls this used to hand-roll (`ui-conversation/src/client/input/facade.ts:460`).
+ * The `editor` path and then the DOM hook remain for an upstream that lacks it.
  */
 function focusComposer(input: SidebarqaSessionInput): void {
   try {
+    if (typeof input.focus === 'function') {
+      input.focus()
+      return
+    }
     const editor = input.editor
     if (editor !== undefined) {
-      // DSH's own order (ui-conversation's skeleton/InputBar.tsx): the raw DOM
-      // focus first, then Lexical's focus(), which re-applies the editor
-      // selection setDraft parked at the end. preventScroll keeps the
-      // conversation scrollport still.
+      // Lexical's focus() re-applies the editor selection setDraft parked at the
+      // end; preventScroll keeps the conversation scrollport still.
       editor.getRootElement()?.focus({ preventScroll: true })
       editor.focus()
       return
     }
     if (typeof document === 'undefined') return
-    // Fallback for an upstream that drops the shell's `editor` field: the
-    // composer's stable DOM hook. Taking the LAST match mirrors how DSH's own
-    // e2e suite disambiguates the session composer from the hero mount.
+    // Last resort: the composer's stable DOM hook. Taking the LAST match mirrors
+    // how DSH's own e2e suite disambiguates the session composer from the hero
+    // mount.
     const nodes = document.querySelectorAll<HTMLElement>('[data-composer-input][contenteditable="true"]')
     nodes[nodes.length - 1]?.focus({ preventScroll: true })
   } catch (error) {

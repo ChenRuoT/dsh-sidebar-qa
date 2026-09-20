@@ -12,10 +12,8 @@
  * 2. **History.** `sessions.history` is gone. A page now needs a `throughSeq`
  *    the host itself handed out, so the transcript is read by OPENING
  *    `session.follow` (opening window + live appends) and quoting its snapshot
- *    `cursor` on every later `session.page` call. The wire also packs runs of
- *    consecutive assistant deltas into single records, so
- *    {@link eventsOfRecords} unpacks them back into per-seq `assistant/chunk`
- *    events — which keeps `answer.ts` a pure fold over scalar events.
+ *    `cursor` on every later `session.page` call. Every record on that wire is a
+ *    scalar event, which keeps `answer.ts` a pure fold over them.
  *
  * Everything except {@link followSession} is pure and unit-tested; the module
  * imports nothing node-only (the purity gate and the `node` test environment
@@ -23,7 +21,6 @@
  */
 import type {
   Context,
-  SidebarqaChunkRunEvent,
   SidebarqaHistoryEntry,
   SidebarqaHistoryRecord,
   SidebarqaModelSelection,
@@ -68,79 +65,18 @@ export function mintRequestId(bytes?: Uint8Array): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-/** The `chunkrow/*` payload shape (mirror of the persistence layer's ChunkRow data). */
-interface ChunkRunData {
-  turn?: unknown
-  step?: unknown
-  index?: unknown
-  dt?: unknown
-  texts?: unknown
-  args?: unknown
-  id?: unknown
-  name?: unknown
-}
-
 /**
- * Unpack one packed delta run back into the scalar `assistant/chunk` events it
- * represents (mirror of the persistence codec's `expandRow`): member `i` sits
- * at `seq0 + i`, and `dt[i - 1]` is the gap to the previous member's time.
- * Malformed runs yield nothing rather than a broken event.
- */
-export function eventsOfChunkRun(run: SidebarqaChunkRunEvent): SidebarqaSessionEvent[] {
-  const data = run.data as ChunkRunData
-  const toolCall = run.type === 'chunkrow/tool-call-chunks'
-  const members = toolCall ? data.args : data.texts
-  if (!Array.isArray(members)) return []
-  const deltas = Array.isArray(data.dt) ? data.dt : []
-  const events: SidebarqaSessionEvent[] = []
-  let time = run.time
-  for (let index = 0; index < members.length; index++) {
-    if (index > 0) {
-      const gap: unknown = deltas[index - 1]
-      time += typeof gap === 'number' ? gap : 0
-    }
-    const member: unknown = members[index]
-    if (typeof member !== 'string') continue
-    const chunk = toolCall
-      ? {
-        type: 'tool-call-delta',
-        index: data.index,
-        id: data.id,
-        ...typeof data.name === 'string' ? { name: data.name } : {},
-        argumentsDelta: member,
-      }
-      : {
-        type: run.type === 'chunkrow/reasoning-chunks' ? 'reasoning-delta' : 'text-delta',
-        index: data.index,
-        text: member,
-      }
-    events.push({
-      type: 'assistant/chunk',
-      seq: run.seq + index,
-      time,
-      data: { turn: data.turn, step: data.step, chunk },
-    })
-  }
-  return events
-}
-
-/**
- * Flatten one history page's wire records into the scalar-event entries the
- * transcript folder consumes. Scalar records pass through untouched; packed
- * delta runs expand in place, so the result stays ordered by seq.
+ * Flatten one history page's wire records into the entries the transcript folder
+ * consumes.
+ *
+ * A one-line map, because the wire carries nothing else: every record on a page is
+ * a scalar event (`SessionHistoryRecord = SessionEventEntry`,
+ * `api/session-controller/src/types.ts:421`).
  */
 export function eventsOfRecords(
   records: readonly SidebarqaHistoryRecord[],
 ): SidebarqaHistoryEntry[] {
-  const entries: SidebarqaHistoryEntry[] = []
-  for (const record of records) {
-    if (record.type === 'event') {
-      entries.push({ event: record.event })
-      continue
-    }
-    for (const event of eventsOfChunkRun(record.event)) entries.push({ event })
-  }
-  return entries
+  return records.map(record => ({ event: record.event }))
 }
 
 /**
@@ -270,9 +206,14 @@ export function followSession(
             cursor: frame.cursor,
             hasMore: frame.hasMore,
           })
-        } else {
+        } else if (frame.type === 'event') {
           sinks.append({ event: frame.event })
         }
+        // Upstream's third frame is `assistant-stream`, the LIVE model stream.
+        // This transcript is folded from the snapshot window and the scalar
+        // `event` appends, so it is deliberately not consumed — the branch exists
+        // so such a frame is recognized rather than read as `frame.event`, which
+        // would be a TypeError the moment upstream starts sending it.
       }
     } catch {
       // A dropped follow leaves the last known transcript on screen; the next

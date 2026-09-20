@@ -9,7 +9,7 @@
  *
  * - host: webServer (@deepseek-ai/dsh-host-webserver), sessionQuery
  *   (@deepseek-ai/dsh-session-query), llm (@deepseek-ai/dsh-llm), loader
- *   (@cordisjs/plugin-loader), settings (@deepseek-ai/dsh-settings)
+ *   (@deepseek-ai/cordis-plugin-loader), settings (@deepseek-ai/dsh-settings)
  * - client: sessions (runtime ISessions list + scope), remote (the typed
  *   client Remote service and its `session` namespace), workspaces (runtime
  *   IWorkspaces list), slots / sidebarRightTabs / sidebarRight (DSH's own
@@ -132,9 +132,24 @@ export interface SidebarqaLlmService {
   listModels(provider: string): Promise<readonly SidebarqaLlmModel[]>
 }
 
-/** One loader entry's options slice (the connection row's resolved config). */
+/**
+ * One loader entry's options slice (the connection row's resolved config).
+ *
+ * `id` is the row's identity inside the entry tree
+ * (`vendor/loader/src/config/entry.ts:10-13`), and it is what identifies the
+ * connection row: the web-app bundle mounts it as `id: connection` with
+ * `name: '@deepseek-ai/dsh-client-connection'` (`packages/bundle/web-app/
+ * cordis.patch.yml`). An earlier revision of this mirror declared only `name` and
+ * matched on it, so the trust fence silently fell back to loopback-only.
+ */
 export interface SidebarqaLoaderEntry {
-  options: { name: string; config?: { trustedHosts?: string[] } }
+  options: {
+    /** Stable row id inside the entry tree; the connection row's is `connection`. */
+    id: string
+    /** The module specifier the row loads (NOT its identity). */
+    name: string
+    config?: { trustedHosts?: string[] }
+  }
 }
 
 /** The loader face used to read the connection row's trustedHosts config. */
@@ -351,7 +366,6 @@ export type SidebarqaRemoteResult<T> =
 /** One history page entry (a scalar event, unpacked from the wire records). */
 export interface SidebarqaHistoryEntry {
   event: SidebarqaSessionEvent
-  view?: unknown
 }
 
 /** Durable identity of one ordinary session on the journal RPCs. */
@@ -361,23 +375,16 @@ export interface SidebarqaSessionAddress {
 }
 
 /**
- * One packed run of consecutive assistant delta events (`chunkrow/text-chunks`,
- * `chunkrow/reasoning-chunks`, `chunkrow/tool-call-chunks`). The host packs
- * runs into a single record to keep pages small; `session-wire.ts` unpacks them
- * back into per-seq `assistant/chunk` events so the transcript folder stays a
- * pure function of scalar events.
+ * One history-page record.
+ *
+ * Upstream is a single-member shape (`SessionHistoryRecord = SessionEventEntry`,
+ * `api/session-controller/src/types.ts:421`): a page carries scalar events and
+ * nothing else. This mirror used to declare a second `{ type: 'chunks' }` member
+ * for "packed assistant delta runs" — no such record exists on the wire, so the
+ * unpacker it fed was unreachable and its doc described a host behaviour that
+ * never happens.
  */
-export interface SidebarqaChunkRunEvent {
-  type: string
-  seq: number
-  time: number
-  data: Record<string, unknown>
-}
-
-/** One history-page record: a raw event, or a packed assistant delta run. */
-export type SidebarqaHistoryRecord =
-  | { type: 'event'; event: SidebarqaSessionEvent }
-  | { type: 'chunks'; event: SidebarqaChunkRunEvent }
+export type SidebarqaHistoryRecord = { type: 'event'; event: SidebarqaSessionEvent }
 
 /**
  * One frame of an addressed session's live journal: the complete opening
@@ -392,6 +399,14 @@ export type SidebarqaFollowFrame =
     hasMore: boolean
   }
   | { type: 'event'; event: SidebarqaSessionEvent }
+  /**
+   * The LIVE assistant stream — upstream's third variant (`types.ts:527`), which
+   * carries a `SessionAssistantStreamFrame`. Declared so an arriving frame is
+   * recognized instead of crashing a `frame.event` read: this plugin's transcript
+   * is folded from the snapshot window and the scalar `event` frames, so the
+   * stream is deliberately ignored.
+   */
+  | { type: 'assistant-stream'; frame: unknown }
 
 /** Complete model selection for one session. */
 export interface SidebarqaModelSelection {
@@ -440,7 +455,7 @@ export interface SidebarqaModelCatalogFailure {
  * The advisory model directory the seat renders from. NOT a wire type any
  * more: the host splits it into the Host-generation `session.modelCatalog()`
  * (groups + failures + routable providers + default) and the per-session
- * `modelSelection` projection (`current`). `ModelSelect` recombines the two
+ * `modelSelection` projection (`lastUsed` / `next`). `ModelSelect` recombines the two
  * into this shape so the pure menu helpers keep one directory face.
  */
 export interface SidebarqaSessionModels {
@@ -604,12 +619,22 @@ export interface SidebarqaSessionInput {
    */
   setDraft(text: string): void
   /**
-   * The shell-owned Lexical editor. It is a public readonly field of
-   * `SessionInputShell` at runtime but is NOT on ui-conversation's frozen
-   * `SessionInput` interface — hence OPTIONAL here, with every read guarded.
-   * `setDraft` never takes DOM focus; this is how the composer gets it, in the
-   * order DSH's own `skeleton/InputBar.tsx` uses. Absent → `draft-insert.ts`
-   * falls back to a plain DOM focus on `[data-composer-input]`.
+   * Return the keyboard to the composer with the caret it last held.
+   *
+   * `setDraft` never focuses, so every insert ends with this. Upstream implements
+   * it as exactly the two calls `draft-insert.ts` used to hand-roll
+   * (`ui-conversation/src/client/input/facade.ts:460-463`): a `preventScroll` DOM
+   * focus, then Lexical's own, which restores its stored selection instead of
+   * dropping the caret at the start.
+   */
+  focus(): void
+  /**
+   * The shell-owned Lexical editor.
+   *
+   * NOT on ui-conversation's frozen `SessionInput` interface — it is a public
+   * readonly field of the runtime shell only — so it is OPTIONAL here and every
+   * read is guarded. Kept as a fallback for an upstream that exposes the shell
+   * field but not {@link focus}.
    */
   editor?: {
     getRootElement(): HTMLElement | null
@@ -792,13 +817,6 @@ export interface SidebarqaSlotsService {
    * @returns disposer.
    */
   register(options: { name: string; key?: string }, component: unknown): () => void
-  /**
-   * Whether a slot is currently declared. Lets a contribution be offered only
-   * when the consuming surface is actually present.
-   * @param name - slot name.
-   * @returns `true` once some plugin declared it.
-   */
-  has(name: string): boolean
 }
 
 /**

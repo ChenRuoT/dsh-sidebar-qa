@@ -136,10 +136,19 @@ function userMessage(text: string): SidebarqaLlmMessage {
   }
 }
 
-/** The connection row's resolved trustedHosts (live read; the /api fence's own list). */
+/**
+ * The connection row's resolved trustedHosts (live read; the /api fence's own list).
+ *
+ * Matched on the row's `id`, NOT on `name`: the web-app bundle mounts that row as
+ * `id: connection` with `name: '@deepseek-ai/dsh-client-connection'`
+ * (`packages/bundle/web-app/cordis.patch.yml`), so a `name === 'connection'` test
+ * never matched anything. This function therefore always returned an empty list,
+ * which silently reduced the /api fence to loopback-only for every LAN or
+ * custom-Host browser — with no error anywhere.
+ */
 function trustedHostsOf(ctx: Context): string[] {
   for (const entry of ctx.loader.entries()) {
-    if (entry.options.name === 'connection') {
+    if (entry.options.id === 'connection') {
       const config = entry.options.config as { trustedHosts?: string[] } | undefined
       return config?.trustedHosts ?? []
     }
