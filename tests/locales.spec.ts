@@ -138,7 +138,7 @@ describe('the uSES contract behind useLocaleRevision', () => {
 
 describe('dictionary integrity', () => {
   it('registers under a namespace no other DSH surface owns', () => {
-    // 'sidebar' is DSH's own ui-sidebar; 'betterSidebar' is the framework's.
+    // 'sidebar' is taken by DSH's own ui-sidebar.
     expect(LOCALE_NS).toBe('sidebarQa')
   })
 

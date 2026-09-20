@@ -19,6 +19,11 @@ import type { Context, SidebarqaSlotsService } from '../context-types.ts'
  */
 export function slotsServiceOf(ctx: Context): SidebarqaSlotsService | undefined {
   const slots = ctx.get('slots')
-  if (slots === undefined || typeof slots.register !== 'function') return undefined
+  if (slots === undefined) return undefined
+  // Both verbs, because both are used: `inject` waits for a seat to be declared and
+  // `register` contributes into it. A registry with only one of them is a
+  // composition fault, and reporting that as "no registry" beats calling a method
+  // that is not there.
+  if (typeof slots.register !== 'function' || typeof slots.inject !== 'function') return undefined
   return slots
 }

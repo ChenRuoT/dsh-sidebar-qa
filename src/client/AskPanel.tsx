@@ -233,7 +233,7 @@ export function AskPanel(props: AskPanelProps) {
 
   // Anchor the initial view on the child's own first message (quote +
   // question), skipping past the inherited parent history. Position within OUR
-  // scrollport only — scrollIntoView would also scroll better-sidebar's outer
+  // scrollport only — scrollIntoView would also scroll DSH's outer right-column
   // container and could drag the composer out of view.
   //
   // Depends on `rows` (not just `anchorSeq`): right after an inherit ask the

@@ -1,12 +1,13 @@
 /**
- * The webview config panel for dsh-sidebar-qa, rendered inside better-sidebar's
- * settings gear popup (the "功能配置" entry on the 追问 tab card in the DSH
- * Settings → 侧边卡片 page). It edits the host's own `sidebarqa` settings
- * namespace through the revision-guarded /sidebarqa/api config routes — NOT
- * better-sidebar's pluginSettings blob — so the host summarize/title routes keep
- * reading the same live values the panel just wrote.
+ * The config panel for dsh-sidebar-qa, rendered as a page in DSH's own settings
+ * (`settings-section.tsx` registers it as a `settings.section`).
  *
- * Persistence mirrors the Side card settings rows: text rows commit on
+ * It edits the host's own `sidebarqa` settings namespace through the
+ * revision-guarded /sidebarqa/api config routes, so the host summarize/title routes
+ * keep reading the same live values the panel just wrote. It takes no props and
+ * knows nothing about where it is mounted.
+ *
+ * Persistence mirrors DSH's own settings rows: text rows commit on
  * blur/Enter; number rows parse + clamp to their declared range and revert to
  * the stored value on invalid input. Writes are serialized and revision-guarded;
  * a stale write reverts the optimistic row and shows an inline conflict message.

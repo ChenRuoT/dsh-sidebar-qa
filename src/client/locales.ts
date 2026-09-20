@@ -21,8 +21,7 @@
  */
 
 /** Namespace this plugin's dictionaries register under in the DSH locale
- *  registry. `sidebar` is DSH's own ui-sidebar and `betterSidebar` is the
- *  framework's, so neither is available. */
+ *  registry. Not `sidebar`: DSH's own ui-sidebar already owns that one. */
 export const LOCALE_NS = 'sidebarQa'
 
 /** Chinese copy — the key-set source of truth. */

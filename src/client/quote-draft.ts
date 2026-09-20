@@ -57,8 +57,7 @@ export interface DraftInsertPlan {
  * Plan the next draft for one inserted quote.
  *
  * The block is APPENDED — the user's existing text reads as a lead-in and is
- * never destroyed (dsh-better-sidebar's `appendToDraft` sets the same
- * precedent) — separated by exactly one blank line however many newlines the
+ * never destroyed — separated by exactly one blank line however many newlines the
  * draft happened to end with. The result itself ends with a blank line so the
  * caret, which `setDraft` parks at the very end, lands on a fresh paragraph
  * BELOW the quote and OUTSIDE it: a line written directly under `> x` would be

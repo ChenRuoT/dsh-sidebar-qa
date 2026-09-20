@@ -42,9 +42,11 @@ import { installSidebarTabs, type SidebarTab } from './sidebar-native.ts'
  * own cordis service, so BOTH names must be injected before `ctx.remote.session`
  * may be touched.
  *
- * The sidebar service is NOT here: `betterSidebar` used to be a hard dependency,
- * which disabled the plugin entirely on a deployment whose sidebar is DSH's own.
- * It is probed at runtime instead (see the module doc).
+ * The sidebar services are NOT here — `sidebarRightTabs`, `sidebarRight`, `slots`
+ * — and neither are `locale`, `conversation`, `uiWorkspace` or `webRuntime`. Every
+ * one of them is probed with `ctx.get` instead: cordis has no optional dependency,
+ * and an injected service a host does not provide leaves the fiber PENDING, which
+ * fails the whole web boot rather than skipping this plugin. See the module doc.
  */
 export const inject = ['sessions', 'remote', 'remote.session', 'workspaces']
 

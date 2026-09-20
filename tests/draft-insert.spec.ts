@@ -6,7 +6,7 @@
  *
  * `draft-insert.ts` takes `ctx` as a parameter and touches `document` only
  * behind a `typeof document === 'undefined'` guard, so it is fully testable in
- * the `node` environment with inline fakes (style: `ensure-panel.spec.ts`).
+ * the `node` environment with inline fakes (style: `sidebar-native.spec.ts`).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { insertQuoteIntoComposer, insertQuoteIntoComposerDeferred } from '../src/client/draft-insert.ts'
