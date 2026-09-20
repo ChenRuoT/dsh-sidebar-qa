@@ -689,21 +689,21 @@ export interface SidebarqaConversationService {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// DSH native right sidebar (ui-sidebar-right)
+// DSH right sidebar (ui-sidebar-right)
 //
-// The second sidebar backend. DSH ≥ 0.1.5-alpha.1 ships its own dockable right
-// column (`@deepseek-ai/dsh-client-ui-sidebar-right`) whose extension points are
-// two injected cordis services — `sidebarRightTabs` (the type registry) and
-// `sidebarRight` (navigation) — plus a render seat declared on DSH's own slot
-// registry. A tab type registers in TWO stages under one implementation `id`:
-// the definition into `sidebarRightTabs`, the body into the keyed
-// `sidebar.right.pane.tab` slot.
+// DSH ≥ 0.1.5-alpha.1 ships its own dockable right column
+// (`@deepseek-ai/dsh-client-ui-sidebar-right`). Its extension points are two cordis
+// services — `sidebarRightTabs` (the type registry) and `sidebarRight` (navigation)
+// — plus render seats declared on DSH's own slot registry. A tab type registers in
+// THREE stages under one implementation `id`: the definition into
+// `sidebarRightTabs`, the body into the keyed `sidebar.right.pane.tab` slot, and
+// the LIVE chip text — a component — into `sidebar.right.pane.tab.title`.
 //
 // These are structural mirrors only. The client bundle must NOT value-import
 // `@deepseek-ai/dsh-client-ui-sidebar-right/client` (client-bundle purity gate):
 // its `/client` export carries runtime code, and DSH policy forbids a feature
-// plugin from requesting another feature plugin's values. The services are
-// reached through `ctx.get()` exactly like `conversation`.
+// plugin from requesting another feature plugin's values. The services are reached
+// through `ctx.get()` exactly like `conversation`.
 // ────────────────────────────────────────────────────────────────────────────
 
 /**

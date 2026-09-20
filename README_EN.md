@@ -26,24 +26,38 @@
 - **🪆 Nested follow-ups**: select text inside a follow-up conversation and ask again — follow-ups nest arbitrarily deep
 - **🗂️ Follow-up records**: grouped under their root (main) session as a layered tree; scoped to the current workspace; nodes are collapsible and show last-activity time; the records tab stays open after jumping; archived/deleted follow-ups are **greyed out with a status badge** and can be removed from the records in one click (the whole subtree's mapping is pruned; the DSH session itself is untouched)
 - **🏷️ Two-phase naming**: a placeholder title from the first quoted line → after the first answer, a topic distilled from “question + answer” overwrites it
-- **⚙️ Configurable**: summary/answer model channels, reasoning effort, context windows and budgets — all editable from the settings gear popup
-- **🌏 Bilingual (zh / en)**: UI copy and model-facing prompts follow the DSH language setting and switch live (no reload); **the answer language follows the content you ask about**, not the interface language
+- **⚙️ Configurable**: summary/answer model channels, reasoning effort, context windows and budgets — the entry point is **DSH Settings → the “Follow-up” page in the left nav** (the panel registers as a `settings.section`); the `sidebarqa` namespace in `settings.yaml` still works and writes the same configuration
+- **🌏 Bilingual (zh / en)**: UI copy and model-facing prompts follow the DSH language setting and switch live (no reload, **including the chip of an already-open tab**); **the answer language follows the content you ask about**, not the interface language
 
-> 🔌 Built on **[dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)** as a third-party extension tab, registered through `ctx.betterSidebar.registerTab`; capability-equal to built-in tabs, install and go.
+> 🔌 **Registers into DSH's OWN right sidebar only**: DSH **0.1.5-alpha.1 and newer** ships that sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`), and this plugin registers into it directly (the `ctx.sidebarRightTabs` / `ctx.sidebarRight` services plus the `sidebar.right.pane.tab` and `sidebar.right.pane.tab.title` seats) — **with no extra dependency**. `dsh-better-sidebar` support was removed entirely in 0.6.0. On an older DSH the plugin **still activates**: the selection popover and “Add to chat” keep working, only the sidebar tabs are not registered (and one `console.warn` is logged).
 
 ## 📦 Changelog
+
+### 0.6.0 - 2026-09-XX
+
+- **`dsh-better-sidebar` support removed — DSH's own right sidebar is now the only backend**: there is no second backend and no extra dependency left; the `dsh-better-sidebar` peer dependency and its `peerDependenciesMeta` entry are gone (after `pnpm install`, `node-pty` / `protobufjs` disappear from the lockfile too).
+  - DSH ≥ `0.1.5-alpha.1`: registers into DSH's own right sidebar. Docking, splitting, floating and fullscreen are DSH's business, so the plugin no longer expands the column by hand.
+  - Older DSH: the plugin **still activates** — the selection popover and “Add to chat” work, only the sidebar tabs are missing (with one `console.warn`).
+  - **An already-open tab's chip now follows a language switch**: the plugin registers a live title component into the `sidebar.right.pane.tab.title` seat (the chip used to freeze at the language it was opened in).
+  - **New modules**: `src/client/ask-mode.ts` (panel view mode) and `src/client/show-session.ts` (put the target session on screen through `ctx.uiWorkspace.openSession`).
+- **A batch of “type mirror invented an upstream member” failures fixed**: “Add to chat” never found its target session, the records-tree jump threw a `TypeError`, LAN access to `/sidebarqa/api` was always 403, reading an `assistant-stream` frame crashed, and more. See [CHANGELOG](./CHANGELOG.md).
+- **The config panel now lives in DSH's own settings page**: `ConfigPanel` registers as a `settings.section` (`src/client/settings-slot.ts` for the registration, `src/client/settings-section.tsx` for the page), so the settings nav gains a **whole “Follow-up” page** (after every page DSH ships) and **the gear popup is gone**. Not `plugins.item`: that seat's contract reserves it for the host-plane configuration pages `ui-settings-plugins` ships, and it is unavailable whenever the deployment has no managed profile, which would take the config entry down with it.
+- **Both halves changed** — host-side fixes to the `/sidebarqa/api` trust fence and `package.json`'s peer dependencies: run `pnpm install` again and restart `dsh web` after upgrading.
 
 ### 0.5.0 - 2026-08-29
 
 - **Two-button selection popover ([issue #11](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/11))**：the new **“Add to chat”** button appends the selection to the **current session's main composer** as a `>` blockquote and focuses it (caret on the line below), **without creating a session or opening the sidebar**; **“Ask”** is unchanged. Client-only change — a hard browser refresh is enough.
 
-## Prerequisites (required)
+## Prerequisites
 
-`dsh-better-sidebar` **must be installed** (without it the plugin stays **inactive** — no UI, no behavior, no session creation), and it must be **`0.16.0` or newer** (peer dependency `>=0.16.0` — upstream moves faster than this plugin, so no minor upper bound is pinned; the range will be narrowed only if a future release actually breaks). The DSH host must be **`0.1.2-alpha.1` or newer** (`engines.dsh: >=0.1.2-alpha.1`): this plugin's browser-side RPC uses the Remote service `ctx.remote.session` introduced in that release. On earlier DSH the plugin **stays silently inactive** — stay on `dsh-sidebar-qa@0.4.0` there.
+| Host DSH | Sidebar tabs | Selection popover / Add to chat |
+|---|---|---|
+| ≥ `0.1.5-alpha.1` (recommended) | ✅ registered into DSH's own right sidebar | ✅ |
+| `0.1.2-alpha.1` ~ `0.1.4.x` | ❌ not registered (one `console.warn`) | ✅ |
 
-```bash
-dsh plugin --profile web add dsh-better-sidebar@latest
-```
+- **The sidebar tabs need DSH ≥ `0.1.5-alpha.1`**: DSH's own right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) ships from that release. On earlier DSH the plugin is not inactive — the popover and “Add to chat” work exactly as before.
+- The check is a **runtime structural probe** (are the services there), not a version comparison: the tabs register only once `sidebarRightTabs` / `sidebarRight` / `slots` are all present.
+- `engines.dsh` still declares `>=0.1.2-alpha.1` (the floor for the browser-side RPC over `ctx.remote.session`), but **DSH does not validate `engines` at all** — it is a declaration, not a gate.
 
 ## Install
 
@@ -66,11 +80,15 @@ Restart `dsh web` (host-half changes need a restart; client-half changes only ne
    - **Inherit full history**: `sessions.fork` branches a child from the main session's latest completed turn, so the full history travels with the seed and the first request reuses the parent's message prefix → DeepSeek's **automatic prefix cache hits**, with zero compression loss; the child keeps the parent's model. While the main conversation is still answering (no completed turn), the fork automatically degrades to **compressed** and says so. In the follow-up tab the inherited parent history renders **above a divider**, the initial view is anchored on this follow-up's own “quote + question”, and scrolling up **pages in** the parent history (the same experience as the main conversation's “load earlier”).
    - **Compressed**: the fast model compresses the earlier window while the recent messages stay verbatim (default, token-thrifty).
    - **Trim**: the last `trimWindowMessages` messages verbatim — zero LLM cost, deterministic output.
-5. The sidebar's **Follow-ups** tab groups records under their root (main) session, listing every (nested) follow-up in the **current workspace** as a layered tree (membership resolved from the workspace owning the active session — see `src/client/history-scope.ts`); clicking a node jumps into it. Nodes with children carry a **collapse button** on the right (the chevron rotates with the collapse state) to fold the subtree, with that conversation group's **last-activity time** to its left (a relative label reusing the style and `sessions.list.updatedAt` source of the DSH left panel). After jumping, the target session's **Follow-ups tab stays open** (targeted `openTab(seed, scope)`: focused if already open, created if not). Follow-ups that were **archived or deleted** (when you manage sessions yourself) are **greyed out and badged “Archived / Deleted”**, are no longer clickable, and the row's **Remove** button clears them from the records (pruning the whole subtree from the localStorage mapping; the DSH session itself is unaffected).
+5. The sidebar's **Follow-ups** tab groups records under their root (main) session, listing every (nested) follow-up in the **current workspace** as a layered tree (membership resolved from the workspace owning the active session — see `src/client/history-scope.ts`); clicking a node jumps into it. Nodes with children carry a **collapse button** on the right (the chevron rotates with the collapse state) to fold the subtree, with that conversation group's **last-activity time** to its left (a relative label reusing the style and `sessions.list.updatedAt` source of the DSH left panel). After jumping, the target session's **Follow-ups tab stays open** (the plugin first puts the target session on screen through `ctx.uiWorkspace.openSession`, then opens the records tab into its right sidebar). Follow-ups that were **archived or deleted** (when you manage sessions yourself) are **greyed out and badged “Archived / Deleted”**, are no longer clickable, and the row's **Remove** button clears them from the records (pruning the whole subtree from the localStorage mapping; the DSH session itself is unaffected).
 
 ## Configuration
 
-Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the settings page). **Web entry point**: DSH Settings → Side Cards → the gear popup in the top-right of the Follow-up card (provided by dsh-better-sidebar v0.12+ `settings.render`), where every field below is editable — text rows commit on blur/Enter, number rows clamp to their range, and writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (a conflict across windows prompts a retry). The answer/summary channel and model rows are dropdowns fed from the channels configured at runtime.
+Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the DSH settings page).
+
+> ℹ️ **The config panel lives in DSH's settings page.** The “functional config” panel (`src/client/ConfigPanel.tsx`) registers as a `settings.section`; the path is **Settings → the “Follow-up” page in the left nav** (ordered after every page DSH ships). It still edits the host's `sidebarqa` namespace (through this plugin's own `/sidebarqa/api/config.update`, with its revision optimistic lock), so **the `sidebarqa` namespace in `settings.yaml` remains valid — the two routes write the same configuration**.
+
+Every key in the table below can be written straight into the `sidebarqa` namespace of `settings.yaml`. In the panel you can edit those fields row by row — text rows commit on blur/Enter, number rows clamp to their range, and writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (a conflict across windows prompts a retry); the answer/summary channel and model rows are dropdowns fed from the channels configured at runtime. Hand-editing the YAML is exactly equivalent.
 
 | Key | Default | Description |
 |---|---|---|
@@ -83,7 +101,7 @@ Configuration lives in the DSH settings service under the `sidebarqa` namespace 
 | `answerModel` | `deepseek-v4-flash` | Follow-up answer model |
 | `answerReasoningEffort` | `off` | Follow-up reasoning effort (`off`/`high`/`max` dropdown) |
 
-> The panel surfaces only these 8 common settings; the compression/title internals (`summarizeBudgetTokens`, `recentWindowMessages`, `backgroundWindowMessages`, `titleBudgetTokens`) are not exposed there and keep their defaults, but stay settable in the `sidebarqa` namespace of `settings.yaml`.
+> The config panel (`config-fields.ts`) declares only those 8 common settings; the compression/title internals (`summarizeBudgetTokens`, `recentWindowMessages`, `backgroundWindowMessages`, `titleBudgetTokens`) are not exposed there and are settable only in the `sidebarqa` namespace of `settings.yaml`.
 
 > The compressed mode's context injection is deliberately light: the older background is squeezed into **at most 3 sentences** (goal / current progress / open items), the recent band keeps only the last 2 messages with hard truncation (≤400 chars each), and the model receives them **newest-first** so the current progress lands in the strongest attention position. If summarization fails or no channel is available, it degrades to “recent conversation + quote + question” and the Q&A is never blocked; if inherit fails (the main conversation is mid-answer) it degrades to compressed.
 
@@ -98,7 +116,11 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
 ├── src/prompt-locale.ts    model-facing zh/en prompt bundles + question-marker registry (shared, pure, tested)
 ├── src/context-types.ts    structural cordis service faces + Context augmentation
 └── src/client/             browser: selection capture, popover, ask panel, orchestration, records
-    ├── index.tsx           apply: register 2 better-sidebar tabs + popover + locale dictionaries
+    ├── index.tsx           apply: tab specs (`id` and `kind` declared separately) + popover + locale dictionaries + sidebar install
+    ├── sidebar-native.ts   **the only sidebar module**: service probing + three-stage registration (type / body / live title) + opening by kind (with cross-frame confirmation after a navigation)
+    ├── slots.ts            slot-registry probe (`ctx.get('slots')`; shared by the sidebar tabs and the settings page)
+    ├── show-session.ts      put the target session on screen (`ctx.uiWorkspace.openSession`, tested)
+    ├── current-session.ts  current-session rule: `retainedBy.mainView > 0` (pure, tested)
     ├── selection.ts        selection capture & validation (single message / non-streaming / ≤2000 chars)
     ├── SelectionPopover.tsx floating “Add to chat” / “Ask” buttons
     ├── quote-draft.ts       blockquote formatting + draft merge (pure)
@@ -113,12 +135,13 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── model-seat.ts        seat binding (which session it reads, commit vs draft, what it shows; pure, tested)
     ├── ContextMeter.tsx     context-occupancy ring (contextPressure projection + breakdown panel)
     ├── context-meter.ts     occupancy percentage / compact token formatting (pure, tested)
-    ├── ensure-panel.ts      collapsed-panel self-heal: expansion decision + expand via SidebarStore (pure, tested)
-    ├── tab-activation.ts    onActivate bridge: re-heal when a tab is re-activated after a manual collapse (issue #6)
+    ├── ask-mode.ts          panel view mode (`resolveAskMode`, pure, tested)
     ├── locales.ts           zh/en UI dictionary + module-level t() (zero imports, tested)
     ├── use-locale.ts        useLocaleRevision(): re-render every panel root on a language switch
     ├── orchestrate.ts      create → placeholder rename → selectModel (default flash / thinking off) → prompt + continue + post-answer retitle
-    ├── ConfigPanel.tsx      config gear popup (edits the sidebarqa namespace; answer/summary channel and model dropdowns)
+    ├── settings-slot.ts     register the config panel as a DSH settings section (probe + retry, pure, tested)
+    ├── settings-section.tsx the settings “Follow-up” page: heading + description + ConfigPanel
+    ├── ConfigPanel.tsx      functional config panel (edits the `sidebarqa` namespace; rendered by the settings page's `settings.section`)
     ├── config-fields.ts     config row declarations + number coercion + catalog option resolution (pure, tested)
     ├── store.ts            parent→child map (localStorage-persisted, nested) + pending quotes + titled marks
     ├── injection.ts        XML escape/sanitize + injection format + placeholder topic
@@ -126,17 +149,27 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     └── api.ts              /sidebarqa/api fetch wrapper + current-model reader
 ```
 
-### Cross-plugin seam (meta.quote)
+### Cross-plugin seam (a pre-filled quote)
 
-An external plugin can open the follow-up tab with a **pre-filled quote** (bypassing this plugin's selection popover) by carrying `meta` on better-sidebar's `openTab` seed:
+An external plugin can open the follow-up tab with a **pre-filled quote** (bypassing this plugin's selection popover). The payload rides the native sidebar's **per-open channel** — `ctx.sidebarRight.openTab(kind, { params })`, where `kind` is `ask` or `history`:
 
 ```ts
-ctx.betterSidebar.openTab(
-  { type: 'dsh-sidebar-qa:ask', meta: { quote: { text: 'the selected content', role: 'user' } } },
-)
+// open the Follow-up tab in a session's right sidebar with a quote attached
+ctx.sidebarRight.openTab('ask', {
+  params: { quote: 'the selected content', role: 'user' },
+})
+
+// just open the records tab
+ctx.sidebarRight.openTab('history')
 ```
 
-The panel prefers `meta.quote` (shape-validated: `text` must be a non-empty string; `role` / `messageId` are optional pass-throughs) and falls back to the popover's pending quote. Once the user sends a question the quote is consumed (cleared via `updateTab`), so a refresh or refocus never resurrects an old one. The `<quoted_context>` block keeps `source="agent-history"`.
+> ⚠️ `kind` is the **dispatch short name** (`ask` / `history`), NOT `dsh-sidebar-qa:ask` / `dsh-sidebar-qa:history` — those are the tab's **implementation ids** (the keys its seats register under). `openTab` looks the registry up by kind and throws `no tab type is registered as "…"` for anything else.
+
+This plugin's own popover uses the same channel: `sidebar-native.ts` exposes an opener (`openAsk` / `openHistory`) and the popover calls `opener.openAsk({ sessionId }, { quote, role })`. There is **no** port export for third parties — the client-bundle purity gate forbids value-importing another feature plugin in the first place.
+
+The panel prefers that incoming quote (shape-validated: `params.quote` must be a non-empty string; `role` / `messageId` are optional pass-throughs) and falls back to the popover's pending quote. A quote is delivered **exactly once per navigation**, so a refresh or refocus never resurrects an old one while a **second external open** still delivers its new quote (one navigation = one fresh occurrence). The `<quoted_context>` block keeps `source="agent-history"`.
+
+> An already-open tab's chip **does** follow a language switch: the plugin registers a **component** into the `sidebar.right.pane.tab.title` seat (it subscribes to the locale revision and re-renders in place). On a host that does not declare that seat the chip falls back to the string captured at open time — stale in that language, but harmless.
 
 ### Key data flow
 
@@ -178,7 +211,7 @@ The overarching instruction goes **first** in the input so the attention mechani
 ```bash
 pnpm install
 pnpm build      # tsc declarations + tsdown (lib/index.js + lib/client.js + lib/client-registry.js)
-pnpm test       # vitest (injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / model-seat / context-meter / config / config-fields / ensure-panel / tab-activation / locales / prompt-locale)
+pnpm test       # vitest (answer / ask-mode / config / config-fields / context-meter / current-session / draft-insert / history-scope / history-time / injection / locales / model-menu / model-seat / prompt-locale / quote-draft / session-wire / settings-section / sidebar-native / store / summarize / title)
 pnpm typecheck
 ```
 
@@ -186,7 +219,7 @@ pnpm typecheck
 
 Both the UI copy and the model-facing prompts follow **DSH's own language setting** (Settings → General → Language, i.e. `locale.preference` in `$DSH_HOME/settings.yaml`), falling back to the browser language and then to English. Switching takes effect **live** — no reload, no restart.
 
-- **UI**: both tab titles (including already-open tabs), the selection popover, empty/status hints, the model seat, the context meter and the config panel. The dictionary is `src/client/locales.ts`; zh is the key-set source of truth and the en table is locked to it by its type annotation.
+- **UI**: both tab titles (including already-open ones — guaranteed by the live-title component in the `sidebar.right.pane.tab.title` seat), the selection popover, empty/status hints, the model seat, the context meter and the config panel. The dictionary is `src/client/locales.ts`; zh is the key-set source of truth and the en table is locked to it by its type annotation.
 - **Model-facing**: the follow-up intro, the context-compression and title system prompts, and the structural markers those prompts name — all in `src/prompt-locale.ts`. The client sends a `locale` field to `/sidebarqa/api/context` and `/sidebarqa/api/title`; an **absent field means `zh`**, so a pre-i18n client talking to a new host behaves byte-for-byte as before.
 - **The answer language follows the CONTENT, not the UI.** The prompts tell the model to answer in the language of the user's question, falling back to the quoted text — mirroring DSH's own session titler. Asking about an English paper from a Chinese UI still gets you an English answer.
 - Follow-up sessions are titled `❓<topic>`: the emoji alone is the marker, so no language switch can leave your session list with mixed-language prefixes.

@@ -6,31 +6,44 @@
 
 ### Added
 
-- **原生侧边栏支持（原生优先，向后兼容）**：DSH 自 `0.1.5-alpha.1` 起自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`，提供 `ctx.sidebarRightTabs` / `ctx.sidebarRight` 与 `sidebar.right.pane.tab` 渲染席位）。本插件现在**直接注册进原生右侧栏，不需要任何额外依赖**；更早的 DSH 上自动回落到 `dsh-better-sidebar`，行为与 0.5.0 一致。
-  - 新增 `src/client/sidebar-port.ts`（端口契约 + 后端结构探测 + 服务探针，纯模块）、`src/client/sidebar-better-sidebar.ts` 与 `src/client/sidebar-native.ts` 两个适配器、`src/client/sidebar-install.ts`（后端选择与 tab 安装，无 React）。
-  - **原生两段式注册**：阶段一 `ctx.sidebarRightTabs.register({ id, kind, priority: 'extension', title, guide })`（页面类型：无 `patterns`、无 `multiple`）；阶段二 `ctx.slots.inject('sidebar.right.pane.tab', …)` 把 body 注册在**同一个实现 id** 下（席位按 id 分发，不是按 kind）。打开走 `ctx.sidebarRight.openTab(kind, { params })`。
-  - **`+` 菜单里看不到自注册类型是设计如此**：原生侧边栏的 `+` 只打开 guide 页，类型靠 guide 条目（上面的 `guide`）暴露，所以本插件为两个 tab 各注册了一个 guide 胶囊。这与 better-sidebar 不同——后者直接在 `+` 菜单里列 tab。
-  - `AskPanel` / `HistoryPanel` **不感知后端**：它们面向一个中性的「出现实例」——`tabId` + `revision`（第几次被导航到）+ 能力集（`setTitle` / `takeQuote` / `healVisibility` / `openHistory`），由适配器填充。
-  - **原生后端零 `@deepseek-ai/*` 值导入**：全程走 cordis 服务与插槽，client bundle 纯度门不放宽（第三方 bundle 运行期只有 9 个种子词可 `require`，且 DSH 政策禁止特性插件 value-import 或 `dsh.client.external` 另一个特性插件的值）。
+- **只注册进 DSH 自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`，DSH ≥ `0.1.5-alpha.1`）**：本版本**移除 `dsh-better-sidebar` 兼容**，插件只有一个侧边栏后端，且**不需要任何额外依赖**。
+- **三阶段注册，共用一个实现 id**：① 类型进 `ctx.sidebarRightTabs.register({ id, kind, priority: 'extension', title, guide })`（页面类型：无 `patterns`、无 `multiple`）；② body 进 keyed 席位 `sidebar.right.pane.tab`；③ **活的标题**进 keyed 席位 `sidebar.right.pane.tab.title`。后两者都是 `ctx.slots.inject(name, () => ctx.slots.register({ name, key: id }, Component))`——**席位按实现 id 分发，不是按 kind**；打开走 `ctx.sidebarRight.openTab(kind, { params })`。
+- **标题席位是新增能力**：DSH 的 tab 标题只在**打开时刻**求值一次并写进布局记录、之后永不改写（上游也明确「没有标题注册时使用打开时捕获的文本」），所以以前已打开的 tab 会**冻结在打开时的语言**。注册一个**组件**到标题席位后，它订阅语言 revision 并在原处重渲染——**已打开 tab 的标题现在跟随语言切换**。宿主不声明该席位时回退为那个冻结字符串（陈旧但无害）。
+- **`+`（guide）条目仍是可发现性的唯一来源**：原生侧边栏的 `+` 控件只打开 guide 页，注册的类型靠 `guide` 条目暴露成可点胶囊；本插件为两个 tab 各注册一个条目（标题/说明按语言实时读取），新增 `askGuideDesc` / `histGuideDesc` 文案。
+- **配置面板有了归宿：迁入 DSH 官方设置页**。它注册成一个 `settings.section`（注册逻辑在 `src/client/settings-slot.ts`，纯模块、可测；页面组件 `src/client/settings-section.tsx` 渲染 `ConfigPanel`），因此设置页左侧导航新增**一整页**「追问 / Follow-up」（文案键 `cfgNavLabel` / `cfgSectionTitle` / `cfgSectionDesc`），`order: 30` —— 排在 DSH 自带各页（general 0 / models 10 / plugins 15 / agent-presets 20 / archived-sessions 25）之后。**不再有齿轮弹窗**。
+  - 注册形态：`ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'sidebar-qa', order: 30, label: () => t('cfgNavLabel') }, ConfigSection))`；插槽注册表仍是 `ctx.get()` 探测（`src/client/slots.ts`，与侧边栏模块共用同一个探针）。
+  - **为什么不是 `plugins.item`**：该席位的契约明文写着它留给 `ui-settings-plugins` 那些 host-plane 配置页，并要求 bundle 的配置走 `plugins.bundle.config`；而那个插件页在没有受管 profile 的部署上整页不可用，会把配置入口一起带走。`settings.section` 永远可达。
+- 新增 client 纯模块 `src/client/ask-mode.ts`（`resolveAskMode`：面板视图模式；自 `meta-quote.ts` 搬出，后者随 better-sidebar 一起删除）与 `src/client/show-session.ts`（`showSessionFirst`：用 `ctx.uiWorkspace.openSession` 把目标会话切到屏幕上）。
+- 回归用例：`tests/sidebar-native.spec.ts`（重写）、`tests/ask-mode.spec.ts`（新增）、`tests/settings-section.spec.ts`（新增）。
 
 ### Changed
 
-- **`betterSidebar` 不再是 cordis `inject` 的硬依赖**：此前它在 `inject` 里，任何没装 `dsh-better-sidebar` 的部署都会让**整个插件**不激活。现在改为运行期探测，**两种侧边栏都装不上时插件仍然激活**——划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn` 说明）。
-- 面板的标题刷新 / 跨插件引文 / 面板自愈 / 跳转打开**改走端口**，不再直接调 `ctx.betterSidebar.*`。行为等价，但语义更准：引文由适配器保证**只交付一次**；`ensure-panel.ts` 与 `tab-activation.ts` 现在只服务于 better-sidebar 路径（原生 `openTab` 自己会展开栏位，且用 `navigation.revision` 取代 `onActivate`）。
-- `SidebarqaTabComponentProps` 收窄：`tab` 只保留 `id`（端口刻意不把后端的 tab 私有字段——better-sidebar 的 `meta` 之类——暴露给面板），新增可选的 `sidebar` 出现实例。
-- `src/context-types.ts` 增补原生侧边栏与 `slots` 的服务面镜像并挂 Context augmentation；与上游的漂移仍然只收敛在这一个文件。
+- **`inject` 收窄为 `['sessions', 'remote', 'remote.session', 'workspaces']`**，`betterSidebar` 不再出现（它此前是硬依赖：任何没装 `dsh-better-sidebar` 的部署都会让**整个插件**不激活）。侧边栏服务 `sidebarRightTabs` / `sidebarRight` / `slots` **一律 `ctx.get()` 探测 + 监听 `internal/service` 重探**，**绝不写进 cordis `inject`**——cordis 没有可选依赖，注入一个宿主不提供的服务会让 fiber 停在 PENDING，而 `boot-client.ts` 会让**整个 web boot 抛错**（白屏，不是降级）。三件套齐备才落定：只有注册表没有席位，tab 会出现但 body 渲染不出来。全都缺失时插件仍激活（浮层 + 「添加到对话」），只记一条 `console.warn`。
+- **面板不再感知侧边栏**：`AskPanel` / `HistoryPanel` 删掉了「推 tab 标题」与「面板自愈展开」两个 effect（前者由标题席位承担，后者原生 `openTab` 自己会展开栏位），也删掉了 `onTabActivated` 订阅（原生路径上本来就是死代码）。面板现在只消费一个中性的「出现实例」`SidebarqaTabOccurrence`：`{ tabId, revision, takeQuote(), openHistory(scope) }`（`src/context-types.ts`）。`revision` 就是 `navigation.revision`——每次被导航到都递增，是「再次打开」唯一的信号（一次外部打开 = 一个新的出现实例，所以引文能重新递送）。
+- **跨会话手势统一走 `src/client/show-session.ts`**：原生 `openTab` 只作用于**已挂载**的会话 surface（无 surface 时抛 `no session surface is mounted`），而导航后会话绑定要到下一次 React commit 才由 seat 的 `useEffect` 重新发布——同 tick 的 `openTab` 会**静默**打到刚离开的会话。现在先 `uiWorkspace.openSession` 切屏，随后用 `openTabIn(sessionId, …)`（DSH 自己 Tab 域的路径，静默但绝不会落错会话）跨帧重发并以 `active()` 确认；宿主没有 `openTabIn` 时退回跨帧 `openTab`，且检查期间没有更晚的导航接管。
+- **`id` 与 `kind` 是同一个 `SidebarTab` 对象上的两个字段**，打开时从**被注册的那个对象**读回 kind。「注册 `ask` 却打开 `dsh-sidebar-qa:ask`」这类分叉（`placeTab` 会抛 `no tab type is registered as "…"`）因此不可表达。
+- `engines.dsh` 仍是 `>=0.1.2-alpha.1`（浏览器侧 RPC 走 `ctx.remote.session` 的下限），但 **DSH 完全不校验 `engines`**，所以它只是声明、不是闸门；真正的前置是**侧边栏 tab 需要 DSH ≥ `0.1.5-alpha.1`**。更早的 DSH 上插件**仍然激活**，只是不注册侧边栏 tab。
+- `dsh.client.inject`（包名依赖边）保留：它是**纯信息性**的声明，不决定加载顺序，缺失会被静默跳过，**不是版本硬约束**。
+- `src/context-types.ts` 随之收敛：删掉端口/桥/两后端相关类型，`SidebarqaTabComponentProps` 只保留 `tab.id` + 可选的 `sidebar` 出现实例，新增原生侧边栏、`slots`、`uiWorkspace`、`webRuntime` 的服务面镜像并挂 Context augmentation；与上游的漂移仍然只收敛在这一个文件。
+
+### Removed
+
+- **peer 依赖 `dsh-better-sidebar`** 及其 `peerDependenciesMeta` 条目（`package.json`）。
+- `pnpm-workspace.yaml`：两条 `dsh-better-sidebar` 的 `minimumReleaseAgeExclude`，以及整个 `allowBuilds` 块（`node-pty` / `protobufjs` 只因 better-sidebar 才在依赖图里）；`pnpm-lock.yaml` 重生成后二者已完全消失。
+- 源文件：`src/client/sidebar-port.ts`（端口契约 + 后端探测）、`sidebar-install.ts`（后端选择与安装）、`sidebar-better-sidebar.ts`（适配器）、`ensure-panel.ts`（面板收起自愈——原生 `openTab` 自己展开栏位）、`tab-activation.ts`（`onActivate` 桥——`navigation.revision` 取代）、`meta-quote.ts`（`resolveAskMode` 搬到 `ask-mode.ts`，引文形状校验改在 `sidebar-native.ts` 的 `quoteOfNavParams` 里）。
+- 测试：`tests/sidebar-port.spec.ts`、`sidebar-seam.spec.ts`、`sidebar-better-sidebar.spec.ts`、`ensure-panel.spec.ts`、`tab-activation.spec.ts`、`meta-quote.spec.ts`。
+- 文档：`docs/better-sidebar-expand-feature-request.md`（该功能请求随 better-sidebar 一起作废）。
 
 ### Fixed
 
-以下四条都是**在真实部署上实测发现**（现象：侧边栏里看不到 tab、也不自动展开栏位），按「上游 → 下游」的顺序排列——前两条如果不修，后面两条根本走不到：
+以下三条都是**在真实部署上实测发现**（现象：侧边栏里看不到 tab），按「上游 → 下游」的顺序排列——前两条如果不修，第三条根本走不到：
 
 - **`ctx.inject` 的每个键都是「必需依赖」，不存在可选形式**（**这条是根因**）。上游 cordis 的 `Fiber._refresh` 会遍历 `Object.keys(this.inject)`，只要有一个键没有实现就把 fiber 置为 `INACTIVE`，因此回调**只在全部服务都存在时**才运行。初版写成 `ctx.inject({ sidebarRightTabs: null, betterSidebar: null }, cb)`，语义是「要求原生侧边栏和 better-sidebar **同时**存在」——现实中不成立，于是 fiber 永久 PENDING、回调一次都没跑，插件什么也没注册，**却仍然打印了正常的激活日志**。`{ name: null }` 不是「可选」，而是「必需，并以 `null` 拦截」。
-  现改为 `ctx.get()` 读取（与 `ui-conversation` 的 `conversation` 同一条路，不需要 inject）+ 监听 cordis 的 **`internal/service`** 事件（`ReflectService.notify` 每次 `provide` 都会 emit）做反应式安装，并且在 `createSidebarPort` 里要求原生三件套（`sidebarRightTabs` + `sidebarRight` + `slots`）齐备才落定 —— 只有注册表没有席位，tab 会出现但 body 渲染不出来。
+  现改为 `ctx.get()` 读取（与 `ui-conversation` 的 `conversation` 同一条路，不需要 inject）+ 监听 cordis 的 **`internal/service`** 事件（`ReflectService.notify` 每次 `provide` 都会 emit）做反应式安装，并且在 `nativeSidebarServicesOf`（`src/client/sidebar-native.ts`）里要求三件套（`sidebarRightTabs` + `sidebarRight` + `slots`）齐备才落定 —— 只有注册表没有席位，tab 会出现但 body 渲染不出来。
 - **原生 tab 类型没注册 guide 条目 → 侧边栏里根本看不到它**。原生右侧栏的 `+` 控件**只打开 guide（引导页）**，并不枚举已注册类型；guide 页才是把类型列成可点胶囊的地方（`GuideBody.tsx:96`：点击 → `tab.actions.openTab(entry.kind, { replaceTab: true })`；内置的工作区文件 / 新建终端 / 浏览器三个入口就是同一机制，见 `ui-sidebar-files/definition.tsx:35` 等）。初版只注册了类型与 body，这两个 tab 因此只能由代码打开——正是「没有 tab」。现为两个类型各注册一个 guide 条目（标题 / 说明按语言实时读取），并新增 `askGuideDesc` / `histGuideDesc` 文案。
 - **探测只在 `apply` 时做一次 → 后端晚到时永久不注册**。`sidebarRightTabs` 由 `ui-sidebar-right` 自己的 `apply` 发布，两个 fiber 谁先落地属于组装顺序、不是插件可以假设的。初版探测落空后**不再重试**，只留一条容易被忽略的 warn。
-- **探测用错动词**：探测 `betterSidebar` 查的是 `register`，而 better-sidebar 的注册方法叫 **`registerTab`**——没有原生侧边栏、只装 better-sidebar 的部署会被误判为「无侧边栏」。已改为逐服务声明各自动词（原生注册表 / 插槽 = `register`，better-sidebar = `registerTab`）。
 
-四条都补了针对性回归用例（`tests/sidebar-seam.spec.ts` 的「guide 条目到达 DSH」「后端迟到时仍会安装」「等到最后一个服务才落定」「销毁后晚到服务不得重新注册」「不把 register 误认为 registerTab」）。测试替身也一并改对了：它现在**不提供**任何形式的可选 inject（那正是让前三轮「单测全绿、真机全挂」的原因），服务必须通过 `provide()` 事件到达。
+三条都补了针对性回归用例（`tests/sidebar-native.spec.ts` 的「guide 条目到达 DSH」「后端迟到时仍会安装，且只装一次」「三件套缺一即视为没有侧边栏」「缺动词的服务当成缺席」）。测试替身也一并改对了：它现在**不提供**任何形式的可选 inject（那正是让前三轮「单测全绿、真机全挂」的原因），服务必须通过 `provide()` 事件到达。
 
 - **原生「提问」打开时用的 kind 与注册时不一致 → 点击必然报错**。原生类型有**两个不能互换的名字**：`id`（实现身份，唯一，body 席位按它查找）与 `kind`（`openTab(kind)` 的派发名，`placeTab` 按它查注册表，查不到就抛）。本插件 `id` 用 tab key（`dsh-sidebar-qa:ask`）、`kind` 用短名（`ask`），而初版把 `openAsk` 的 kind 常量从 **key** 推导，于是注册了 `ask` 却去打开 `dsh-sidebar-qa:ask`：
   ```
@@ -38,22 +51,22 @@
       at SidebarRightController.placeTab (service.ts:369)
       at Object.openAsk (sidebar-native.ts:226)
   ```
-  现改为**注册时记下每个类型实际使用的 kind**（`kindByKey`），打开时用它，两者不可能再分叉；未注册时直接告警返回，不再让异常从点击处理器里逃出去。回归用例改为断言「打开的 kind === 注册的 kind」（断言常量抓不到这类漂移）。
-- **原生「提问」前先切到引文所属会话**。原生导航面只作用于**已挂载**的会话面板：`openTab` 会取当前绑定的 seat，没有就抛 `sidebarRight: no session surface is mounted`（`ui-sidebar-right/src/client/service.ts:537`）。而引文是在划选时按当时会话捕获的，用户可能已切走，于是这次打开必然失败。现在打开前若目标会话不是当前会话，先 `sessions.open` 把它切到屏幕上（better-sidebar 的 `openTab` 自带 scope，不受影响）。
+  现改为**注册时按角色记下每个类型实际使用的 kind**（`kindByRole`，见 `src/client/sidebar-native.ts` 的 `installSidebarTabs`），打开时用它，两者不可能再分叉；未注册时直接告警返回，不再让异常从点击处理器里逃出去。回归用例改为断言「打开的 kind === 注册的 kind」（断言常量抓不到这类漂移）。
+- **原生「提问」前先切到引文所属会话**。原生导航面只作用于**已挂载**的会话面板：`openTab` 会取当前绑定的 seat，没有就抛 `sidebarRight: no session surface is mounted`（`ui-sidebar-right/src/client/service.ts:537`）。而引文是在划选时按当时会话捕获的，用户可能已切走，于是这次打开必然失败。现在打开前若目标会话不是当前会话，先经 `ctx.uiWorkspace.openSession` 把它切到屏幕上（`src/client/show-session.ts` 的 `showSessionFirst`）—— 这里原先写的是 `ctx.sessions.open`，一个 `ISessions` 根本不存在的**臆造 API**（该契约里没有任何导航入口，它自己的注释把导航划归 view owner），修掉它这条路径才真的动起来。
 - **`SessionListState.current` 这个字段根本不存在 —— 本插件从第一版起就在读一个臆造的字段**（**这是「添加到对话」与选区归属的总根因**）。`SessionListState` 的真实结构是 `{ ids, byId, phase, subagentsByParent, jobsBySession }`（`api/session-controller/src/client/sessions/service.ts:53`），**没有 `current`**，所以 `sessions.list.getSnapshot().current` 恒为 `undefined`。更糟的是**本插件的类型镜像我当初自己加了 `current`**，于是运行时默默返回 `undefined`、编译器也永远报不出来——这个错误因此一直活到了现在。
-  DSH 自己的「当前会话」定义在 `ui-workspace/src/client/tree.ts:41`：**主视图 retain 的那个会话**（`retainedBy.mainView > 0`）。现已新增纯函数 `src/client/current-session.ts`（`resolveCurrentSessionId`，9 条单测），替换全部 5 处误用：选区归属与重激活引文清理（`index.tsx`）、composer 目标解析与切换判定（`draft-insert.ts`）、打开前切会话（`sidebar-install.ts`）、追问记录的工作区归属判定（`HistoryPanel.tsx`）。类型镜像里的 `current` 已删除，并按真实结构补齐 `ids` / `phase` / `retainedBy`——删掉假字段后，`tsc` 立刻抓出了最后一处漏改。
+  DSH 自己的「当前会话」定义在 `ui-workspace/src/client/tree.ts:41`：**主视图 retain 的那个会话**（`retainedBy.mainView > 0`）。现已新增纯函数 `src/client/current-session.ts`（`resolveCurrentSessionId`，9 条单测），替换全部 5 处误用：选区归属（`index.tsx`）、composer 目标解析（`draft-insert.ts`）、切会话前后的当前会话判定与接管判定（`show-session.ts` / `sidebar-native.ts`）、追问记录的工作区归属判定（`HistoryPanel.tsx`）。类型镜像里的 `current` 已删除，并按真实结构补齐 `ids` / `phase` / `retainedBy`——删掉假字段后，`tsc` 立刻抓出了最后一处漏改。
 - **「添加到对话」在选区没带 sessionId 时被当成不可恢复**。空串来自上一行的假字段。初版把空串当成致命错误直接 `return`，于是**连重试路径也一起被砍掉了**（日志里能看到 `missing-session (selectionSession=<empty>)`）。现在空 id 会**在写入时重新解析**，并且允许下一帧重试。
 - **「添加到对话」在会话不在屏幕上时必然失败**。写进 composer 需要该会话的 **Agent scope**，而 `ctx.sessions.scope(id)` 只对**当前已挂载**的会话返回值（`session-controller/src/client/sessions/service.ts:502` → `this.scopes.get(id)`）；scope 拿不到时该按钮只记一条 warn 并返回 false，而浮层在失败时会**保留自身与选区**——于是用户看到的就是「点了没反应」（这次连浮层都不消失）。
-  现在按钮先把引文所属会话切到屏幕上（`sessions.open`），并在 scope 仍未被 retain 时**于下一帧重试一次**（scope 由 React reconciliation retain，不是同步的）；失败原因（`missing-session` / `no-conversation-service` / `scope-unavailable` / `threw`）会带 phase 打到 console，不再只有一行含糊的 warn。重试只针对**重试可能修复**的两类（空 id、scope 未 retain），`no-conversation-service` 与 `threw` 不重试，避免噪音翻倍。
+  现在按钮先把引文所属会话切到屏幕上（`ctx.uiWorkspace.openSession`，经 `src/client/show-session.ts`），并在 scope 仍未被 retain 时**于下一帧重试一次**（scope 由 React reconciliation retain，不是同步的）；失败原因（`missing-session` / `no-conversation-service` / `scope-unavailable` / `threw`）会带 phase 打到 console，不再只有一行含糊的 warn。重试只针对**重试可能修复**的两类（空 id、scope 未 retain），`no-conversation-service` 与 `threw` 不重试，避免噪音翻倍。
 - **打开链路的异常不再静默**。浮层在调用之前就把自己关掉了（`SelectionPopover.ask()` 先 `controller.clear()` 再 `onAsk`），因此一旦后半段抛错，用户看到的就是「点了没反应」而没有任何提示。现在 openAsk / openHistory 都会把失败打到 console，并在调用前后各留一条 info 日志，便于区分「没走到」与「走到了但失败」。
+- **一批「类型镜像臆造上游成员」的静默故障**。`src/context-types.ts` 是本仓库唯一的声明来源，臆造出来的成员 `tsc` 永远报不出来、运行期读作 `undefined`，同一类故障因此反复发生：`SidebarqaLoaderEntry` 只声明了 `options.name`，而 web-app bundle 把那一行挂成 `id: connection`（`name` 是包名），于是 `/sidebarqa/api` 的信任围栏恒判为 loopback-only，局域网或自定义 Host 的浏览器访问**恒 403**——现在按 `options.id` 匹配，并优先读已求值的 `webRuntime.trustedHosts`（那一行自己的 config 里是**未求值的** `!!js` 表达式，当成数组读会让 `.some()` 抛错、把 403 变成挂起；现在每个来源都做数组校验，失配时拒绝而不是抛）。另外：`slots.has`（上游叫 `spec()`，零调用点）、`HistoryEntry.view`（零调用点）、`HistoryRecord` 的 `{ type: 'chunks' }` 变体（上游是单成员联合，那个「打包增量」在线上根本不存在）、`FollowFrame` 缺 `assistant-stream` 变体（上游可能开始发的第三种帧，读 `frame.event` 会让渲染崩）、以及 `SessionInput.focus()`（上游本就公开，不必经由未公开的 editor 字段手搓）——全部按上游契约改正。
 
-### 已知差异（原生后端）
+### 说明（原生侧边栏）
 
-- **已打开 tab 的标题不会随语言切换刷新**：原生 tab 类型的 `title` 在**打开时刻**求值一次并写入布局记录，DSH 没有为已打开的 tab 提供改名入口；better-sidebar 后端有 `updateTab`，那边照旧实时更新。面板内部文案两种后端都实时切换。
-- **配置面板暂无 Web 入口**：齿轮「功能配置」弹窗是 better-sidebar 的能力。原生侧边栏下请用 `settings.yaml` 的 `sidebarqa` 命名空间；把配置面板搬进 DSH 官方设置页（`plugins.item` 席位）是后续阶段的工作。
-- **跳转只作用于当前屏幕上的会话**：better-sidebar 可以定向打开「不在屏幕上的会话」的侧边栏状态；原生导航面只作用于已挂载的会话 surface（`sessions.open` 之后二者等价）。
+- **配置面板已迁入 DSH 官方设置页**：它现在注册成 `settings.section`，在设置页左侧导航里是**一整页**「追问 / Follow-up」（排在 DSH 自带各页之后，`order: 30`），**不再有齿轮弹窗**；`settings.yaml` 的 `sidebarqa` 命名空间仍然有效，两条路写的是同一份配置。之所以不是 `plugins.item`：该席位的契约明文留给 `ui-settings-plugins` 那类 host-plane 配置页、并要求 bundle 配置走 `plugins.bundle.config`，而那个插件页在没有受管 profile 时整页不可用，会把配置入口一起带走。
+- **跳转会先把目标会话切到屏幕上**：原生 `openTab` 只作用于**已挂载**的会话 surface，而右栏的 session 绑定由 React effect 在下一次 commit 才重新发布，所以紧跟导航的打开会**静默**打到刚离开的会话。现在的顺序是：先 `ctx.uiWorkspace.openSession`（`src/client/show-session.ts`）把目标会话切到屏幕上，随后用 `openTabIn(sessionId, kind, …)` 定向到目标会话自己的 store —— 该 store 尚未被 adopt 时它是**静默 no-op**，所以**不可能开错会话** —— 在几个帧的有界预算内重发，并以 `active()` 确认，最终失败才 `console.warn`。**有界重试只在需要切换时发生**：目标已经是屏幕上的会话就直接 `openTab`，一次到位。
 
-> 部署提醒：**仅 client 半改动**，浏览器硬刷新即可，无需重启 `dsh web`。
+> 部署提醒：**host 与 client 两半都有改动**（host 侧修了 `/sidebarqa/api` 的信任围栏与 `webRuntime` 读取），且 manifest 层移除了 peer 依赖（lock 随之变化）：升级后请重新 `pnpm install`，并重启 `dsh web`。
 
 ## [0.5.0] - 2026-08-29
 

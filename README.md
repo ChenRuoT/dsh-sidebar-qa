@@ -26,7 +26,7 @@
 - **🪆 嵌套追问**：在追问对话里再划选提问，生成子追问，层层嵌套
 - **🗂️ 追问记录**：按根（主）会话分层树展示；限定当前工作区；节点可折叠、显示最近访问时间；点击跳转后追问记录 tab 保持开启；已归档/已删除的追问**置灰标记状态**，可一键从记录中移除（连同整棵子树清理映射，不影响 DSH 侧会话）
 - **🏷️ 两段式命名**：划选首行占位命名 → 首次回答完成后基于「问题 + 回答」自动提炼 ≤15 字最终标题
-- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调（`settings.yaml` 的 `sidebarqa` 命名空间；面板暂无 Web 入口，见下）
+- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调——入口是 **DSH 设置页 → 左侧导航「追问」**（面板注册为 `settings.section`），也可以直接写 `settings.yaml` 的 `sidebarqa` 命名空间，两条路写的是同一份配置
 - **🌏 中英双语**：界面文案与模型侧提示词跟随 DSH 语言设置实时切换（无需刷新，**包括已打开 tab 的标题**）；**回答语言跟随你提问/划选的内容**，不被界面语言绑架
 
 > 🔌 **只注册进 DSH 自带右侧栏**：DSH **0.1.5-alpha.1 及以上**自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`），本插件直接注册进它（`ctx.sidebarRightTabs` / `ctx.sidebarRight` 服务 + `sidebar.right.pane.tab` 与 `sidebar.right.pane.tab.title` 席位），**无任何额外依赖**。`dsh-better-sidebar` 兼容已在 0.6.0 彻底移除。更早的 DSH 上插件**仍然激活**：划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn`）。
@@ -41,8 +41,8 @@
   - **已打开 tab 的标题现在会跟随语言切换**：插件在 `sidebar.right.pane.tab.title` 席位注册了一个活的标题组件（以前该标题会冻结在打开时的语言）。
   - **新增能力**：`src/client/ask-mode.ts`（面板视图模式）、`src/client/show-session.ts`（用 `ctx.uiWorkspace.openSession` 把目标会话切到屏幕上）。
 - **修掉一批「类型镜像臆造上游成员」导致的静默故障**：「添加到对话」一直找不到目标会话、「追问记录」跳转抛 `TypeError`、局域网访问 `/sidebarqa/api` 恒 403、`assistant-stream` 帧读取崩溃等。详见 [CHANGELOG](./CHANGELOG.md)。
-- **已知缺口**：配置面板（`ConfigPanel`）原本挂在 better-sidebar 的设置齿轮上，现在**暂无 Web 挂载点**；配置入口只有 `settings.yaml` 的 `sidebarqa` 命名空间，迁到 DSH 官方设置页（`settings.section` 席位）是后续工作。
-- **仅 client 半改动**，浏览器硬刷新即可；但因 `package.json` 的 peer 依赖有变化，升级后请重新 `pnpm install`。
+- **配置面板已迁入 DSH 官方设置页**：`ConfigPanel` 现在注册成一个 `settings.section`（`src/client/settings-slot.ts` 注册 + `src/client/settings-section.tsx` 页面），设置页左侧导航因此新增**一整页**「追问」（排在 DSH 自带各页之后），**不再有齿轮弹窗**。之所以不是 `plugins.item`：那个席位的契约留给 `ui-settings-plugins` 的 host-plane 配置页，且在没有受管 profile 的部署上整页不可用，会把配置入口一起带走。
+- **host 与 client 两半都有改动**（host 侧修了 `/sidebarqa/api` 的信任围栏），且 `package.json` 的 peer 依赖有变化：升级后请重新 `pnpm install`，并重启 `dsh web`。
 
 ### 0.5.0 - 2026-08-29
 
@@ -86,9 +86,9 @@ dsh plugin --profile web add <本仓库路径>
 
 配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或 DSH 设置页）。
 
-> ⚠️ **已知缺口：配置面板暂无 Web 挂载点。**「功能配置」面板（`src/client/ConfigPanel.tsx`）原本挂在 `dsh-better-sidebar` 的设置齿轮（`settings.render`）上；better-sidebar 兼容移除后它就没有宿主了。**当前的配置入口只有 `settings.yaml` 的 `sidebarqa` 命名空间**（或任何直接编辑该命名空间的界面）。把面板迁到 DSH 官方设置页（`settings.section` 席位）是**尚未完成**的后续工作。组件本身与后端无关，不会被删除。
+> ℹ️ **配置面板就在 DSH 设置页里**：「功能配置」面板（`src/client/ConfigPanel.tsx`）注册成一个 `settings.section`，导航路径是 **设置 → 左侧导航「追问」**（排位在 DSH 自带各页之后）。它编辑的仍是 host 的 `sidebarqa` 命名空间（经本插件自己的 `/sidebarqa/api/config.update`，带 revision 乐观锁），所以 **`settings.yaml` 的 `sidebarqa` 命名空间依然有效，两条路写的是同一份配置**。
 
-下表的键都可以直接写进 `settings.yaml` 的 `sidebarqa` 命名空间。面板可用时它可逐项编辑这些字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试），回答/摘要的模型渠道与模型为下拉框（选项来自运行时已配置的渠道）；在面板有挂载点之前，这些交互都只能通过手写 YAML 完成。
+下表的键都可以直接写进 `settings.yaml` 的 `sidebarqa` 命名空间。面板里则可以逐项编辑这些字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试），回答/摘要的模型渠道与模型为下拉框（选项来自运行时已配置的渠道）；直接手写 YAML 也完全等效。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -118,6 +118,7 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
 └── src/client/             浏览器：选区捕获、浮层、问答面板、会话编排、追问记录
     ├── index.tsx           apply：tab 规格（id/kind 分开声明）+ 浮层 + locale 词典 + 侧边栏装配
     ├── sidebar-native.ts   **唯一的侧边栏模块**：服务探测 + 三阶段注册（类型 / body / 活的标题）+ 按 kind 打开（含导航后跨帧确认）
+    ├── slots.ts            插槽注册表探测（ctx.get('slots')；侧边栏 tab 与设置页共用）
     ├── show-session.ts     把目标会话切到屏幕上（ctx.uiWorkspace.openSession，可测）
     ├── current-session.ts  当前会话判定：retainedBy.mainView > 0（纯函数，可测）
     ├── selection.ts        选区捕获与校验（单消息/非流式/≤2000 字符）
@@ -138,7 +139,9 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── locales.ts           界面 zh/en 词表 + 模块级 t()（零依赖，可测）
     ├── use-locale.ts        useLocaleRevision()：语言切换时重渲染各面板根
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
-    ├── ConfigPanel.tsx       功能配置面板（编辑 sidebarqa 命名空间；**当前无 Web 挂载点**，见「配置」一节）
+    ├── settings-slot.ts      把配置面板注册成 DSH 设置页的一个 section（探测 + 重试，纯模块，可测）
+    ├── settings-section.tsx  设置页「追问」页面：标题 + 说明 + ConfigPanel
+    ├── ConfigPanel.tsx       功能配置面板（编辑 sidebarqa 命名空间；由设置页的 settings.section 渲染）
     ├── config-fields.ts      配置面板行声明 + 数字钳制 + catalog 选项解析（纯函数，可测）
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成
@@ -162,12 +165,7 @@ ctx.sidebarRight.openTab('history')
 
 > ⚠️ `kind` 是 `ask` / `history` 这样的**派发短名**，不是 `dsh-sidebar-qa:ask` / `dsh-sidebar-qa:history`——后者是 tab 的**实现 id**（席位注册用的键）。`openTab` 按 kind 查注册表，传 id 会抛 `no tab type is registered as "…"`。
 
-本插件也可以被自己的 API 打开（选情浮层的「提问」走的就是这条）：
-
-```ts
-import { installSidebarTabs } from 'dsh-sidebar-qa/client'
-// 持有 opener 后：opener.openAsk({ sessionId }, { quote, role })
-```
+本插件自己的划选浮层走的是同一条通道：`sidebar-native.ts` 暴露一个 opener（`openAsk` / `openHistory`），浮层拿到引文后调 `opener.openAsk({ sessionId }, { quote, role })`。**没有**给外部插件用的端口导出——client bundle 的纯度门本来就禁止跨特性插件 value-import。
 
 面板优先显示这条来路引文（形状校验：`params.quote` 为非空字符串；可选透传 `role` / `messageId`），回退到本插件浮层的 pending 引文；引文由适配器保证**每次导航只交付一次**，所以刷新/再次聚焦不会复现旧引文，而**第二次外部打开**仍会递送它的新引文（一次导航 = 一个新的出现实例）。`<quoted_context>` 的 `source` 标签沿用 `agent-history`。
 
@@ -213,7 +211,7 @@ import { installSidebarTabs } from 'dsh-sidebar-qa/client'
 ```bash
 pnpm install
 pnpm build      # tsc 声明 + tsdown（lib/index.js + lib/client.js + lib/client-registry.js）
-pnpm test       # vitest 单测（injection / summarize / answer / store / title / meta-quote / history-scope / history-time / model-menu / model-seat / context-meter / config / config-fields / ensure-panel / tab-activation / locales / prompt-locale）
+pnpm test       # vitest 单测（answer / ask-mode / config / config-fields / context-meter / current-session / draft-insert / history-scope / history-time / injection / locales / model-menu / model-seat / prompt-locale / quote-draft / session-wire / settings-section / sidebar-native / store / summarize / title）
 pnpm typecheck
 ```
 
@@ -221,7 +219,7 @@ pnpm typecheck
 
 界面文案与模型侧提示词都跟随 **DSH 的语言设置**（设置 → 通用 → 语言，即 `$DSH_HOME/settings.yaml` 的 `locale.preference`）；缺少 locale 服务时回退浏览器语言，再回退 en。切换语言**即时生效**，无需刷新或重启。
 
-- **界面**：两个 tab 标题（含已打开的 tab）、划选浮层、空态与状态提示、模型选择、context 占用环、功能配置面板——词表在 `src/client/locales.ts`，zh 为键集基准，en 由类型标注锁定。
+- **界面**：两个 tab 标题（含已打开的 tab——由 `sidebar.right.pane.tab.title` 席位的活标题组件保证）、划选浮层、空态与状态提示、模型选择、context 占用环、功能配置面板——词表在 `src/client/locales.ts`，zh 为键集基准，en 由类型标注锁定。
 - **模型侧**：追问引导语、上下文压缩系统提示、标题系统提示，以及提示词指名引用的结构标记——词表在 `src/prompt-locale.ts`。client 调用 `/sidebarqa/api/context` 与 `/sidebarqa/api/title` 时带 `locale` 字段；**缺省等价于 `zh`**，旧版 client 打到新 host 与 i18n 之前逐字节一致。
 - **回答语言不跟界面走**：提示词要求模型「用与用户提问相同的语言作答，问题语言不明确时跟随划选文本」——中文界面下划选英文论文提问，仍得到英文回答（与 DSH 官方会话命名同款策略）。
 - 追问会话标题为 `❓<主题>`：只用 emoji 标记，不含需要翻译的词，切换语言不会让会话列表出现混合语言前缀。

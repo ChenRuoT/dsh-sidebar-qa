@@ -11,7 +11,8 @@
  *
  * The hook deliberately takes no `ctx`: `ConfigPanel` (rendered by the DSH
  * settings shell) and `SelectionPopover` (its own body root) never receive one,
- * and reading the module holder is what lets one hook serve all four roots.
+ * and reading the module holder is what lets one hook serve every root —
+ * including the right column's title seat, which renders outside all of them.
  */
 import { useSyncExternalStore } from 'react'
 import { activeLocaleId, subscribeLocale } from './locales.ts'
