@@ -6,9 +6,10 @@
  * - `lib/client.js` serves the official profile channel, registering with
  *   the package-name id `dsh-sidebar-qa` (the client-modules compose keys on the
  *   package name; keep it in sync with package.json `name`),
- * - `lib/client-registry.js` serves the plugin-registry channel
- *   (dsh.plugin.json), registering with the manifest id
- *   `dsh-external/dsh-sidebar-qa`.
+ * - `lib/client-registry.js` serves the plugin-registry channel, registering under
+ *   the manifest id `dsh-external/dsh-sidebar-qa` — spelled out on the bundle
+ *   below, NOT read from `dsh.plugin.json` (which is not in package.json's `files`
+ *   and is therefore never published).
  *
  * The client bundle only depends on the shared platform module table entries
  * (react, react-dom, cordis) — everything else is inlined or provided at
