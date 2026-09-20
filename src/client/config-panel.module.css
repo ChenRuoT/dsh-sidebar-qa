@@ -1,14 +1,38 @@
 /*
- * The webview config panel, rendered inside better-sidebar's settings gear
- * Modal. It follows the DSH settings-row recipe (label/desc left, control
- * right, hairline separators) with DSH-native design tokens so it matches the
- * host settings popup and flips with the app's light/dark scheme.
+ * The plugin's settings page, rendered as a DSH settings SECTION.
+ *
+ * That container supplies only a padded, scrolling content column — no card and no
+ * heading — so the section draws its own. The row recipe below (label/desc left,
+ * control right, hairline separators) follows DSH's own settings rows and uses
+ * DSH design tokens, so it flips with the app's light/dark scheme.
  */
 
 .root {
   display: flex;
   flex-direction: column;
   width: 100%;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 720px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sectionDesc {
+  margin: 2px 0 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .rows {

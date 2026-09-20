@@ -894,7 +894,20 @@ export interface SidebarqaSlotsService {
    * @param component - the component to render.
    * @returns disposer.
    */
-  register(options: { name: string; key?: string }, component: unknown): () => void
+  register(
+    options: {
+      name: string
+      /** KEYED seats dispatch on this — the right column's tab body uses the tab id. */
+      key?: string
+      /** LIST seats require this: it is the entry's identity, and it picks the nav icon. */
+      id?: string
+      /** Ascending position within the seat. */
+      order?: number
+      /** A list entry's display text, re-read whenever the owner re-projects. */
+      label?: string | (() => string)
+    },
+    component: unknown,
+  ): () => void
 }
 
 /**

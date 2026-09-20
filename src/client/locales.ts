@@ -87,6 +87,10 @@ export const zh = {
   strategyAria: '上下文策略：{label}',
 
   // ── Config panel (ConfigPanel + config-fields) ────────────────────────────
+  // The DSH settings page the panel is mounted on (`settings-section.tsx`).
+  cfgNavLabel: '追问',
+  cfgSectionTitle: '追问面板',
+  cfgSectionDesc: '追问会话使用的模型、上下文压缩策略与预算，写入 sidebarqa 命名空间。',
   cfgLoading: '加载配置…',
   cfgCatalogInherit: '继承被追问会话',
   cfgHistoryStrategyLabel: '上下文策略',
@@ -187,6 +191,10 @@ export const en: Record<CopyKey, string> = {
   strategyTrim: 'Trim',
   strategyAria: 'Context strategy: {label}',
 
+  // The DSH settings page the panel is mounted on (`settings-section.tsx`).
+  cfgNavLabel: 'Follow-up',
+  cfgSectionTitle: 'Follow-up panel',
+  cfgSectionDesc: 'The model, context strategy and budgets follow-up sessions use, stored in the sidebarqa namespace.',
   cfgLoading: 'Loading settings…',
   cfgCatalogInherit: 'Inherit from the asked session',
   cfgHistoryStrategyLabel: 'Context strategy',

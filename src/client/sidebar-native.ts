@@ -75,6 +75,7 @@ import type {
 } from '../context-types.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
 import { showSessionFirst } from './show-session.ts'
+import { slotsServiceOf } from './slots.ts'
 import { useLocaleRevision } from './use-locale.ts'
 
 /**
@@ -173,8 +174,8 @@ function hasMethod<T extends object, K extends string>(
 export function nativeSidebarServicesOf(ctx: Context): NativeSidebarServices | undefined {
   const tabs = ctx.get('sidebarRightTabs')
   const sidebar = ctx.get('sidebarRight')
-  const slots = ctx.get('slots')
-  if (!hasMethod(tabs, 'register') || !hasMethod(sidebar, 'openTab') || !hasMethod(slots, 'register')) {
+  const slots = slotsServiceOf(ctx)
+  if (!hasMethod(tabs, 'register') || !hasMethod(sidebar, 'openTab') || slots === undefined) {
     return undefined
   }
   return { tabs, sidebar, slots }

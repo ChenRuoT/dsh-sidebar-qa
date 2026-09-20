@@ -24,7 +24,6 @@
 import { createRoot, type Root } from 'react-dom/client'
 import type { Context } from '../context-types.ts'
 import { AskPanel } from './AskPanel.tsx'
-import { ConfigPanel } from './ConfigPanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
 import { SelectionPopover } from './SelectionPopover.tsx'
 import { createSelectionController } from './selection.ts'
@@ -33,6 +32,8 @@ import { insertQuoteIntoComposerDeferred } from './draft-insert.ts'
 import { createSidebarqaStore, type SidebarqaStore } from './store.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
 import type { PendingQuote } from './store.ts'
+import { ConfigSection } from './settings-section.tsx'
+import { installSettingsSection } from './settings-slot.ts'
 import { installSidebarTabs, type SidebarTab } from './sidebar-native.ts'
 
 /**
@@ -135,6 +136,11 @@ export function apply(ctx: Context): void {
   // surface rather than a service handle. Nothing about this is synchronous.
   const sidebar = installSidebarTabs(ctx, { tabs: sidebarTabSpecs(store) })
 
+  // ── Settings page ─────────────────────────────────────────────────────────
+  // The config panel lives in DSH's own settings as a section. Independent of the
+  // sidebar (and of whether the sidebar exists at all), so it is installed on its own.
+  installSettingsSection(ctx, { label: () => t('cfgNavLabel'), component: ConfigSection })
+
   // Capture a selection → park the quote → open the ask tab. The quote goes on
   // the OPEN (not only into the store) because an external plugin may also open
   // this tab with a quote of its own; both ride the same channel.
@@ -179,9 +185,3 @@ export function apply(ctx: Context): void {
   // Release the selection listeners on disposal.
   ctx.effect(() => () => { selectionController.dispose() }, 'dsh-sidebar-qa: selection listeners')
 }
-
-/**
- * The config panel. Mounted by the DSH settings section registered in
- * `src/client/settings-section.tsx`.
- */
-export { ConfigPanel }
