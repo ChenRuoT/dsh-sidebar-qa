@@ -35,6 +35,7 @@
 - 源文件：`src/client/sidebar-port.ts`（端口契约 + 后端探测）、`sidebar-install.ts`（后端选择与安装）、`sidebar-better-sidebar.ts`（适配器）、`ensure-panel.ts`（面板收起自愈——原生 `openTab` 自己展开栏位）、`tab-activation.ts`（`onActivate` 桥——`navigation.revision` 取代）、`meta-quote.ts`（`resolveAskMode` 搬到 `ask-mode.ts`，引文形状校验改在 `sidebar-native.ts` 的 `quoteOfNavParams` 里）。
 - 测试：`tests/sidebar-port.spec.ts`、`sidebar-seam.spec.ts`、`sidebar-better-sidebar.spec.ts`、`ensure-panel.spec.ts`、`tab-activation.spec.ts`、`meta-quote.spec.ts`。
 - 文档：`docs/better-sidebar-expand-feature-request.md`（该功能请求随 better-sidebar 一起作废）。
+- **随旧后端一起作废的还有 [issue #16](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/16)**（[PR #17](https://github.com/ChenRuoT/dsh-sidebar-qa/pull/17) 曾按「`panelOpen` 缺席 = 原生时代」修过这条路径）：那个 bug 出在 `ensure-panel.ts` 的宽屏判定上——better-sidebar ≥ 0.19 把右栏交给 DSH 原生 Sidebar 后，插件只剩底部工作台一棵树，而它的 `activePane` **恒为底部叶子**，于是每次「提问」都会在原生侧栏之外**再强行打开底部面板**。1.0.0 已不存在任何旧面板自愈（`ensure-panel.ts` / `tab-activation.ts` 一并删除），该问题在结构上不可能再出现；这段记录是说明**为什么不把 #17 的补丁带进来**，而不是漏合。
 
 ### Fixed
 
