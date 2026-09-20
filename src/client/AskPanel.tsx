@@ -26,9 +26,8 @@ import { useLocaleRevision } from './use-locale.ts'
 import { StrategySelect } from './StrategySelect.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
-import { resolveAskMode } from './meta-quote.ts'
+import { resolveAskMode } from './ask-mode.ts'
 import { eventsOfRecords, followSession, mergeEntries, sessionAddress } from './session-wire.ts'
-import { onTabActivated } from './tab-activation.ts'
 import type { SidebarqaStore } from './store.ts'
 import css from './ask-panel.module.css'
 
@@ -45,30 +44,12 @@ export function AskPanel(props: AskPanelProps) {
   const localeRevision = useLocaleRevision()
   const sessionId = scope.sessionId
 
-  // Re-push the tab's chip text whenever the language changes. The ACTIVE
-  // backend decides whether it can: better-sidebar persists an open tab's title
-  // as a plain string and must be updated, while the native type's title is
-  // captured at open time and its bridge is a no-op. Either way the panel just
-  // asks.
-  useEffect(() => {
-    sidebar?.capabilities.setTitle(t('askTabTitle'))
-  }, [sidebar, localeRevision])
-
-  // Self-healing panel expansion (issue #6): a type-only openTab (the 提问
-  // flow) lands the tab inside a possibly collapsed panel. Two triggers:
-  // - MOUNT: a freshly created tab landed in that panel (the tab component is
-  //   rendered even while collapsed — `visible` only pauses live views);
-  // - RE-ACTIVATION: the user collapsed the panel, then clicked 提问 again —
-  //   the open merely re-focuses the existing tab (no remount), so only the
-  //   activation signal (fired even for an already-active tab) reaches us.
-  // Only better-sidebar needs the help: native `openTab` expands the column as
-  // part of placing the tab, and its bridge is a no-op.
-  useEffect(() => {
-    if (sidebar === undefined) return
-    const { capabilities } = sidebar
-    capabilities.healVisibility()
-    return onTabActivated(() => capabilities.healVisibility())
-  }, [sidebar])
+  // Neither the chip text nor panel expansion needs anything from this panel.
+  // `sidebar-native.ts` registers a LIVE title seat, so the tab chip re-localizes
+  // with the language on its own; and a type-only `openTab` expands the column as
+  // part of placing the tab, so a collapsed panel can never hide a tab this plugin
+  // just opened. `localeRevision` still matters here — it re-renders the panel's
+  // own headings below.
 
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
@@ -76,14 +57,13 @@ export function AskPanel(props: AskPanelProps) {
   )
   // Cross-plugin seam: a quote an EXTERNAL plugin handed over with the open
   // (e.g. dsh-sidebar-preview-select's preview selection) takes precedence over
-  // the store's pending quote, which is this plugin's own popover channel. The
-  // adapter owns the backend-specific payload — better-sidebar's tab `meta`,
-  // the native `navigation.params` — and hands the quote over exactly once, so
-  // this component reads it here and then owns its lifetime.
+  // the store's pending quote, which is this plugin's own popover channel. It
+  // rides the open as `navigation.params`, and the occurrence hands it over
+  // exactly once per navigation, so this component reads it here and then owns
+  // its lifetime.
   const [openQuote, setOpenQuote] = useState<SidebarqaPendingQuote | null>(null)
   const [quoteConsumed, setQuoteConsumed] = useState(false)
-  const bridge = sidebar?.capabilities
-  const takeQuote = bridge?.takeQuote
+  const takeQuote = sidebar?.takeQuote
   const revision = sidebar?.revision
   useEffect(() => {
     if (takeQuote === undefined) return

@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   Context,
   SidebarqaSidebarRightService,
@@ -8,50 +8,56 @@ import type {
   SidebarqaSidebarRightTabInfo,
   SidebarqaSidebarRightTabsService,
   SidebarqaSlotsService,
+  SidebarqaTabComponentProps,
+  SidebarqaTabOccurrence,
 } from '../src/context-types.ts'
 import {
-  createNativeSidebarPort,
-  nativeCapabilities,
+  installSidebarTabs,
+  nativeSidebarServicesOf,
   quoteOfNavParams,
+  takeQuoteOnce,
+  type SidebarTab,
 } from '../src/client/sidebar-native.ts'
-import { ASK_TAB, HISTORY_TAB, type SidebarPortTabSpec } from '../src/client/sidebar-port.ts'
+
+const BODY_SEAT = 'sidebar.right.pane.tab'
+const TITLE_SEAT = 'sidebar.right.pane.tab.title'
+const ASK_ID = 'dsh-sidebar-qa:ask'
+const HISTORY_ID = 'dsh-sidebar-qa:history'
 
 /**
- * Doubles for the two native services plus the slot registry.
+ * A recording double for DSH's right column plus the slot registry.
  *
- * The native adapter's contract is: register the type in one place, the body in
- * the other under the SAME id, and open by the registered kind.
+ * The installer's contract is: register the type in the registry, the body and
+ * the live title in their two seats, all under the SAME implementation id — and
+ * open by the kind the REGISTRY holds. Every membership change is recorded, so a
+ * leak shows up as a failed assertion instead of being assumed away.
  */
-function fakeNative(): {
-  types: SidebarqaSidebarRightTabDefinition[]
-  slotInjections: Array<{ name: string; component: unknown }>
-  opened: Array<{ kind: string; options: unknown }>
-  slots: SidebarqaSlotsService
-  tabs: SidebarqaSidebarRightTabsService
-  sidebar: SidebarqaSidebarRightService
-} {
+function fakeNative(opts: { openTabThrows?: boolean } = {}) {
   const types: SidebarqaSidebarRightTabDefinition[] = []
-  const slotInjections: Array<{ name: string; component: unknown }> = []
+  const seats: Array<{ name: string; key: string | undefined; component: unknown }> = []
   const opened: Array<{ kind: string; options: unknown }> = []
+  /** Ids/kinds disposed, so a leaked registration is visible. */
+  const disposedTypes: string[] = []
+  const disposedSeats: string[] = []
   const slots = {
-    inject(_name: string, contribute: () => () => void) {
-      contribute()
-      return () => {}
+    inject(_name: string, contribute: () => () => void): () => void {
+      return contribute()
     },
-    register(options: { name: string; key?: string }, component: unknown) {
-      slotInjections.push({ name: options.name, component })
-      return () => {}
+    register(options: { name: string; key?: string }, component: unknown): () => void {
+      seats.push({ name: options.name, key: options.key, component })
+      return () => { disposedSeats.push(options.key ?? options.name) }
     },
     has: () => true,
   }
   const tabs = {
-    register(definition: SidebarqaSidebarRightTabDefinition) {
+    register(definition: SidebarqaSidebarRightTabDefinition): () => void {
       types.push(definition)
-      return () => {}
+      return () => { disposedTypes.push(definition.id) }
     },
   }
   const sidebar = {
-    openTab(kind: string, options?: unknown) {
+    openTab(kind: string, options?: unknown): void {
+      if (opts.openTabThrows === true) throw new Error('sidebarRight: no session surface is mounted')
       opened.push({ kind, options })
     },
     focus: () => {},
@@ -59,33 +65,140 @@ function fakeNative(): {
   }
   return {
     types,
-    slotInjections,
+    seats,
     opened,
+    disposedTypes,
+    disposedSeats,
     slots: slots as unknown as SidebarqaSlotsService,
     tabs: tabs as unknown as SidebarqaSidebarRightTabsService,
     sidebar: sidebar as unknown as SidebarqaSidebarRightService,
   }
 }
 
-const ctx = {} as Context
-
-/**
- * A spec whose KIND differs from its KEY, exactly like the real ones
- * (`dsh-sidebar-qa:ask` registered as kind `ask`). Keeping them different is the
- * point: an adapter that re-derives one from the other registers under a kind it
- * never opens, which DSH answers with
- * `no tab type is registered as "<kind>"`.
- */
-function specOf(kind: 'ask' | 'history' = 'ask'): SidebarPortTabSpec {
+/** A cordis context double exposing exactly what the installer touches. */
+function fakeCtx(
+  services: Record<string, unknown> = {},
+  list: unknown = { ids: [], byId: {} },
+) {
+  const cleanups: Array<() => void> = []
+  const serviceListeners: Array<() => void> = []
+  const open = vi.fn()
+  const ctx = {
+    get: (name: string) => services[name],
+    effect: (fn: () => void | (() => void)) => {
+      const cleanup = fn()
+      if (typeof cleanup === 'function') cleanups.push(cleanup)
+    },
+    on: (name: string, listener: () => void) => {
+      if (name === 'internal/service') serviceListeners.push(listener)
+      return () => {
+        const at = serviceListeners.indexOf(listener)
+        if (at >= 0) serviceListeners.splice(at, 1)
+      }
+    },
+    sessions: {
+      list: { getSnapshot: () => list, subscribe: () => () => {} },
+      open,
+    },
+  } as unknown as Context
   return {
-    key: kind === 'ask' ? ASK_TAB.key : HISTORY_TAB.key,
-    kind,
-    title: () => 'TITLE',
-    order: 60,
-    icon: () => null,
-    component: () => () => null,
+    ctx,
+    open,
+    /** Make a service visible, as `provide` does before it notifies. */
+    provide(provided: Record<string, unknown>): void {
+      Object.assign(services, provided)
+    },
+    /** Simulate `ReflectService.notify`: some service was just provided. */
+    serviceArrived(): void {
+      for (const listener of [...serviceListeners]) listener()
+    },
+    /** Run every recorded effect cleanup, i.e. dispose the plugin. */
+    dispose(): void {
+      for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+    },
   }
 }
+
+/**
+ * A tab whose KIND differs from its ID, exactly like the real ones
+ * (`dsh-sidebar-qa:ask` registered as kind `ask`). Keeping them different is the
+ * point: an installer that re-derives one from the other registers a kind it
+ * never opens, which DSH answers with `no tab type is registered as "<kind>"`.
+ */
+function tabOf(
+  role: 'ask' | 'history' = 'ask',
+  render: SidebarTab['component'] = () => null,
+): SidebarTab {
+  return {
+    role,
+    id: role === 'ask' ? ASK_ID : HISTORY_ID,
+    kind: role,
+    order: role === 'ask' ? 60 : 70,
+    title: () => `${role.toUpperCase()}-TITLE`,
+    description: () => `${role.toUpperCase()}-DESC`,
+    component: render,
+  }
+}
+
+/** The component registered in one seat, failing loudly when it is missing. */
+function seatOf(native: ReturnType<typeof fakeNative>, name: string, id: string): (props: never) => unknown {
+  const seat = native.seats.find(entry => entry.name === name && entry.key === id)
+  if (seat === undefined) throw new Error(`nothing registered in ${name} under ${id}`)
+  if (typeof seat.component !== 'function') throw new Error(`${name}/${id} is not a component`)
+  return seat.component as (props: never) => unknown
+}
+
+/** A tab-information snapshot, the shape the seat's `useTabInfo` hook returns. */
+function tabInfoOf(revision: number, params: unknown, visible = true): SidebarqaSidebarRightTabInfo {
+  return {
+    sidebar: { expanded: true, fullscreen: false },
+    panel: { id: 'pane-1' },
+    tab: { id: 'tab-1', visible, navigation: { address: 'sidebar://ask', params, revision } },
+  }
+}
+
+/** Every service a mounted right column provides. */
+function mounted(native: ReturnType<typeof fakeNative>): Record<string, unknown> {
+  return { sidebarRightTabs: native.tabs, sidebarRight: native.sidebar, slots: native.slots }
+}
+
+let warn: ReturnType<typeof vi.spyOn>
+
+beforeEach(() => {
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  warn.mockRestore()
+})
+
+describe('nativeSidebarServicesOf', () => {
+  it('finds the trio when the right column is composed', () => {
+    const native = fakeNative()
+    expect(nativeSidebarServicesOf(fakeCtx(mounted(native)).ctx))
+      .toEqual({ tabs: native.tabs, sidebar: native.sidebar, slots: native.slots })
+  })
+
+  it('reports no sidebar when any of the three is absent', () => {
+    const native = fakeNative()
+    const full = mounted(native)
+    for (const missing of ['sidebarRightTabs', 'sidebarRight', 'slots']) {
+      const { [missing]: _dropped, ...rest } = full
+      expect(nativeSidebarServicesOf(fakeCtx(rest).ctx)).toBeUndefined()
+    }
+    expect(nativeSidebarServicesOf(fakeCtx({}).ctx)).toBeUndefined()
+  })
+
+  it('treats a service that lacks the verb it must expose as absent', () => {
+    const native = fakeNative()
+    // Present but malformed: this is what a half-composed deployment looks like,
+    // and degrading to "no sidebar" beats throwing at activation.
+    expect(nativeSidebarServicesOf(fakeCtx({ ...mounted(native), sidebarRightTabs: {} }).ctx))
+      .toBeUndefined()
+    expect(nativeSidebarServicesOf(fakeCtx({ ...mounted(native), sidebarRight: { openTab: 1 } }).ctx))
+      .toBeUndefined()
+  })
+})
 
 describe('quoteOfNavParams', () => {
   it('accepts the rich payload and keeps its optional fields', () => {
@@ -103,155 +216,238 @@ describe('quoteOfNavParams', () => {
   })
 })
 
-describe('nativeCapabilities', () => {
+describe('takeQuoteOnce', () => {
   it('hands the quote over exactly once', () => {
-    const capabilities = nativeCapabilities(() => ({ quote: 'q' }), () => {})
-    expect(capabilities.takeQuote()).toEqual({ text: 'q' })
-    expect(capabilities.takeQuote()).toBeNull()
+    const take = takeQuoteOnce(() => ({ quote: 'q' }))
+    expect(take()).toEqual({ text: 'q' })
+    expect(take()).toBeNull()
   })
 
   it('stays armed while the payload carries no quote', () => {
     let params: unknown = { other: true }
-    const capabilities = nativeCapabilities(() => params, () => {})
-    expect(capabilities.takeQuote()).toBeNull()
+    const take = takeQuoteOnce(() => params)
+    expect(take()).toBeNull()
     params = { quote: 'later' }
-    expect(capabilities.takeQuote()).toEqual({ text: 'later' })
-  })
-
-  it('is a documented no-op for title and panel healing', () => {
-    const capabilities = nativeCapabilities(() => undefined, () => {})
-    expect(() => { capabilities.setTitle('ignored'); capabilities.healVisibility() }).not.toThrow()
-  })
-
-  it('delegates its own history open to the port', () => {
-    const openHistory = vi.fn()
-    nativeCapabilities(() => undefined, openHistory).openHistory({ sessionId: 's1' })
-    expect(openHistory).toHaveBeenCalledWith({ sessionId: 's1' })
+    expect(take()).toEqual({ text: 'later' })
   })
 })
 
-describe('createNativeSidebarPort', () => {
-  it('registers the type as an extension page type and the body under the same id', () => {
-    const fake = fakeNative()
-    const port = createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx)
-    port.registerTab(specOf('ask'))
+describe('installSidebarTabs', () => {
+  it('registers the type, the body and the live title under ONE implementation id', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] })
 
-    expect(fake.types).toHaveLength(1)
-    expect(fake.types[0]).toMatchObject({ id: ASK_TAB.key, kind: 'ask', priority: 'extension' })
-    // No `patterns`: this is a page type opened by kind, not a resource viewer.
-    expect(fake.types[0]).not.toHaveProperty('patterns')
-    expect((fake.types[0]?.title as (address: string) => string)('sidebar://x')).toBe('TITLE')
-
-    expect(fake.slotInjections).toHaveLength(1)
-    expect(fake.slotInjections[0]?.name).toBe('sidebar.right.pane.tab')
+    expect(native.types).toHaveLength(1)
+    expect(native.types[0]?.id).toBe(ASK_ID)
+    expect(typeof seatOf(native, BODY_SEAT, ASK_ID)).toBe('function')
+    // A component, not a string: only a component can re-read the language, which
+    // is what keeps an OPEN tab's chip from freezing in the language it opened in.
+    expect(typeof seatOf(native, TITLE_SEAT, ASK_ID)).toBe('function')
   })
 
-  it('opens by the REGISTERED kind, carrying the quote as navigation params', () => {
-    const fake = fakeNative()
-    const port = createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx)
-    port.registerTab(specOf('ask'))
-    port.openAsk({ sessionId: 's1' }, { quote: 'q', messageId: 'm1', role: 'user' })
+  it('opens the kind that was REGISTERED, never one re-derived from the id', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    const opener = installSidebarTabs(h.ctx, { tabs: [tabOf('ask'), tabOf('history')] })
 
-    // The kind that was OPENED must be the one that was REGISTERED. Asserting
-    // against a constant would not catch a drift between the two — the real bug
-    // was registering `ask` while opening `dsh-sidebar-qa:ask`.
-    expect(fake.opened).toEqual([{
-      kind: fake.types[0]?.kind,
-      options: { params: { quote: 'q', messageId: 'm1', role: 'user' } },
-    }])
-    expect(fake.opened[0]?.kind).toBe('ask')
+    opener.openAsk({ sessionId: 's1' })
+    opener.openHistory({ sessionId: 's1' })
+
+    const ask = native.types.find(type => type.id === ASK_ID)
+    const history = native.types.find(type => type.id === HISTORY_ID)
+    expect(native.opened[0]?.kind).toBe(ask?.kind)
+    expect(native.opened[1]?.kind).toBe(history?.kind)
+    // The regression that produced `no tab type is registered as
+    // "dsh-sidebar-qa:ask"`: an open naming the id while the type registered a
+    // kind. Asserting the two names are NOT interchangeable is the point.
+    expect(native.opened[0]?.kind).not.toBe(ask?.id)
+    expect(native.opened[1]?.kind).not.toBe(history?.id)
   })
 
-  it('opens a kind that differs from the tab key', () => {
-    const fake = fakeNative()
-    const port = createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx)
-    port.registerTab({ ...specOf('ask'), kind: 'ask' })
-    port.openAsk({ sessionId: 's1' })
+  it('carries the cross-plugin quote as navigation params', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    const opener = installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] })
 
-    expect(fake.opened[0]?.kind).toBe('ask')
-    expect(fake.opened[0]?.kind).not.toBe(ASK_TAB.key)
+    opener.openAsk({ sessionId: 's1' }, { quote: 'q', messageId: 'm1', role: 'user' })
+    expect(native.opened[0]?.options).toEqual({ params: { quote: 'q', messageId: 'm1', role: 'user' } })
   })
 
-  it('refuses to open an ask tab that was never registered', () => {
-    const fake = fakeNative()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    // No registration: opening would otherwise reach DSH with an unknown kind
-    // and throw out of a click handler.
-    createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx).openAsk({ sessionId: 's1' })
-    expect(fake.opened).toEqual([])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not registered'))
-    warn.mockRestore()
+  it('opens with no params at all when there is no quote', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] }).openAsk({ sessionId: 's1' })
+    expect(native.opened[0]?.options).toBeUndefined()
   })
 
-  it('accepts a bare string quote and omits params otherwise', () => {
-    const fake = fakeNative()
-    const port = createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx)
-    port.registerTab(specOf('ask'))
-    port.openAsk({ sessionId: 's1' }, 'bare')
-    port.openAsk({ sessionId: 's1' })
+  it('puts the target session on screen before opening', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] }).openAsk({ sessionId: 's-target' })
 
-    expect(fake.opened[0]?.options).toEqual({ params: { quote: 'bare' } })
-    expect(fake.opened[1]?.options).toBeUndefined()
+    // `openTab` acts on the MOUNTED session surface and throws without one, so a
+    // quote captured against a session the user has since left needs this first.
+    expect(h.open).toHaveBeenCalledWith('s-target')
+    expect(native.opened).toHaveLength(1)
   })
 
-  it('opens the history tab under its own registered kind, without params', () => {
-    const fake = fakeNative()
-    const port = createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx)
-    port.registerTab(specOf('history'))
-    port.openHistory({ sessionId: 's1' })
-    expect(fake.opened).toEqual([{ kind: 'history', options: undefined }])
+  it('does not switch when the target is already the session on screen', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native), {
+      ids: ['s1'],
+      byId: { s1: { id: 's1', retainedBy: { mainView: 1 } } },
+    })
+    installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] }).openAsk({ sessionId: 's1' })
+
+    expect(h.open).not.toHaveBeenCalled()
+    expect(native.opened).toHaveLength(1)
   })
 
-  it('disposes both registrations in reverse order', () => {
-    const order: string[] = []
-    const fake = fakeNative()
-    const tabs = { register: () => { order.push('type'); return () => { order.push('untype') } } }
-    const slots = {
-      // Faithful to the contract: `inject` returns the DISPOSER of whatever the
-      // contribution registered, which is what the adapter chains.
-      inject: (_name: string, contribute: () => () => void) => contribute(),
-      register: () => { order.push('body'); return () => { order.push('unbody') } },
-      has: () => true,
+  it('survives an openTab that throws, because a UI gesture must not vanish', () => {
+    const native = fakeNative({ openTabThrows: true })
+    const h = fakeCtx(mounted(native))
+    const opener = installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] })
+
+    expect(() => { opener.openAsk({ sessionId: 's1' }) }).not.toThrow()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('opening the sidebar tab failed'),
+      expect.anything(),
+    )
+  })
+
+  it('warns instead of opening when the sidebar never appeared', () => {
+    const h = fakeCtx({})
+    const opener = installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] })
+
+    expect(opener.installed()).toBe(false)
+    expect(() => { opener.openAsk({ sessionId: 's1' }) }).not.toThrow()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is not registered'))
+  })
+
+  it('contributes the guide entry that is the only way a hand can reach the tab', () => {
+    const native = fakeNative()
+    installSidebarTabs(fakeCtx(mounted(native)).ctx, { tabs: [tabOf('ask')] })
+
+    const entry = native.types[0]?.guide?.[0]
+    expect(native.types[0]?.guide).toHaveLength(1)
+    expect(entry?.id).toBe('ask')
+    expect(entry?.order).toBe(60)
+    expect(entry?.title()).toBe('ASK-TITLE')
+    expect(entry?.description?.()).toBe('ASK-DESC')
+    // The host defaults a type with no explicit band to `extension`, but stating it
+    // is what lets this plugin outrank a builtin viewer that claims the same kind.
+    expect(native.types[0]?.priority).toBe('extension')
+  })
+
+  it('waits for a sidebar that arrives after apply, then registers exactly once', () => {
+    const native = fakeNative()
+    const h = fakeCtx({})
+    const opener = installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] })
+
+    expect(native.types).toHaveLength(0)
+    expect(opener.installed()).toBe(false)
+
+    h.provide(mounted(native))
+    h.serviceArrived()
+    expect(native.types).toHaveLength(1)
+    expect(opener.installed()).toBe(true)
+
+    // Every later publication re-runs the probe; it must not double-register.
+    h.serviceArrived()
+    h.serviceArrived()
+    expect(native.types).toHaveLength(1)
+    expect(native.seats).toHaveLength(2)
+  })
+
+  it('says why the tabs are missing on a host with no right sidebar', async () => {
+    installSidebarTabs(fakeCtx({}).ctx, { tabs: [tabOf('ask')] })
+    await Promise.resolve()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no right sidebar'))
+  })
+
+  it('unregisters the type and both seats on disposal', () => {
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    const opener = installSidebarTabs(h.ctx, { tabs: [tabOf('ask')] })
+    expect(opener.installed()).toBe(true)
+
+    h.dispose()
+
+    expect(native.disposedTypes).toEqual([ASK_ID])
+    expect(native.disposedSeats).toEqual([ASK_ID, ASK_ID])
+    expect(opener.installed()).toBe(false)
+    // The watch went with it, so a late publication cannot resurrect the tabs.
+    h.serviceArrived()
+    expect(native.types).toHaveLength(1)
+  })
+})
+
+describe('the body the seat renders', () => {
+  /** Install one tab and return an accessor for the occurrence it hands the panel. */
+  function harness(role: 'ask' | 'history' = 'ask') {
+    const captured: SidebarqaTabComponentProps[] = []
+    const native = fakeNative()
+    const h = fakeCtx(mounted(native))
+    installSidebarTabs(h.ctx, {
+      tabs: [tabOf(role, (props) => { captured.push(props); return null })],
+    })
+    const Body = seatOf(native, BODY_SEAT, role === 'ask' ? ASK_ID : HISTORY_ID)
+    return {
+      native,
+      h,
+      ctx: h.ctx,
+      /** Render once and hand back the occurrence the panel just received. */
+      occurrenceOf(params: unknown, revision: number, visible = true): SidebarqaTabOccurrence {
+        captured.length = 0
+        renderToStaticMarkup(createElement(
+          Body as never,
+          { sessionId: 's1', useTabInfo: () => tabInfoOf(revision, params, visible) } as never,
+        ))
+        const occurrence = captured[0]?.sidebar
+        if (occurrence === undefined) throw new Error('the panel received no occurrence')
+        return occurrence
+      },
+      last(): SidebarqaTabComponentProps {
+        const props = captured[0]
+        if (props === undefined) throw new Error('the panel was never rendered')
+        return props
+      },
     }
-    const port = createNativeSidebarPort(tabs, fake.sidebar, slots, ctx)
-    const dispose = port.registerTab(specOf('ask'))
-    dispose()
-    expect(order).toEqual(['type', 'body', 'unbody', 'untype'])
+  }
+
+  it('renders the panel with its ctx, scope, tab and visibility', () => {
+    const panel = harness()
+    const occurrence = panel.occurrenceOf(undefined, 1, false)
+    const props = panel.last()
+
+    expect(props.ctx).toBe(panel.ctx)
+    expect(props.scope).toEqual({ sessionId: 's1' })
+    expect(props.tab).toEqual({ id: 'tab-1' })
+    expect(props.visible).toBe(false)
+    expect(occurrence.tabId).toBe('tab-1')
+    expect(occurrence.revision).toBe(1)
   })
 
-  it('renders a body with the seat session id and a live revision read', () => {
-    const fake = fakeNative()
-    const seen: Array<{ sessionId?: string; revision?: number; visible?: boolean }> = []
-    const port = createNativeSidebarPort(fake.tabs, fake.sidebar, fake.slots, ctx)
-    port.registerTab({
-      ...specOf('ask'),
-      component: () => props => {
-        seen.push({
-          sessionId: props.scope.sessionId,
-          revision: props.sidebar?.revision,
-          visible: props.visible,
-        })
-        return createElement('span', null, 'BODY')
-      },
-    })
+  it('hands the quote over once per navigation, and re-arms on the next one', () => {
+    const panel = harness()
+    const first = panel.occurrenceOf({ quote: 'first' }, 1)
+    expect(first.takeQuote()).toEqual({ text: 'first' })
+    expect(first.takeQuote()).toBeNull()
 
-    const tabInfo = (revision: number): SidebarqaSidebarRightTabInfo => ({
-      sidebar: { expanded: true, fullscreen: false },
-      panel: { id: 'p1' },
-      tab: {
-        id: 'tab-1',
-        visible: true,
-        navigation: { address: 'sidebar://ask', params: { quote: 'q' }, revision },
-      },
-    })
+    // A second external open into the SAME tab: the payload rides
+    // `navigation.params`, which the layout record cannot clear, so a fresh
+    // occurrence is the only thing that can deliver the new quote.
+    const second = panel.occurrenceOf({ quote: 'second' }, 2)
+    expect(second.takeQuote()).toEqual({ text: 'second' })
+  })
 
-    const body = fake.slotInjections[0]?.component as (props: unknown) => unknown
-    const markup = renderToStaticMarkup(createElement(
-      body as never,
-      { sessionId: 's1', useTabInfo: () => tabInfo(4) } as never,
-    ))
+  it('lets the tree jump to another session without leaving the tab behind', () => {
+    const panel = harness('history')
+    panel.occurrenceOf(undefined, 1).openHistory({ sessionId: 's2' })
 
-    expect(markup).toContain('BODY')
-    expect(seen[0]).toEqual({ sessionId: 's1', revision: 4, visible: true })
+    expect(panel.h.open).toHaveBeenCalledWith('s2')
+    const history = panel.native.types.find(type => type.id === HISTORY_ID)
+    expect(panel.native.opened[0]?.kind).toBe(history?.kind)
   })
 })

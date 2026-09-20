@@ -5,28 +5,23 @@
  *
  * ## The sidebar seam
  *
- * The plugin runs on two right-column backends and does not care which:
- *
- * - **native** — DSH's own dockable right column (`ctx.sidebarRightTabs` /
- *   `ctx.sidebarRight` + the `sidebar.right.pane.tab` slot), available from DSH
- *   0.1.5-alpha.1; and
- * - **betterSidebar** — the third-party `dsh-better-sidebar` framework, which is
- *   what this plugin shipped on before DSH grew its own.
- *
- * `sidebar-port.ts` probes for one (native wins when both are installed) and the
- * matching adapter implements the port. This file is the only place that picks a
- * backend; the panels and every other module speak the port's language.
+ * The tabs go into DSH's OWN dockable right column
+ * (`@deepseek-ai/dsh-client-ui-sidebar-right`, DSH ≥ 0.1.5-alpha.1).
+ * `sidebar-native.ts` owns that vocabulary — it probes for the services, registers
+ * the types, their bodies and their live titles, and opens them. This file only
+ * describes its two tabs in that module's terms; the panels never see a service.
  *
  * ## Degradation
  *
- * `betterSidebar` is deliberately NOT in the cordis `inject` list any more: a
- * hard dependency would keep the whole plugin inactive on DSH's own sidebar.
- * With NEITHER backend composed, the sidebar tabs are simply not registered —
- * everything else (the selection popover and 「添加到对话」) still works, because
- * neither of those needs a sidebar.
+ * The sidebar services are deliberately NOT in the cordis `inject` list, and must
+ * never be added to it: cordis has no optional-dependency form, so an injected
+ * service that a host does not provide parks this plugin's fiber — and a parked
+ * fiber fails the ENTIRE web boot rather than skipping this plugin. They are
+ * probed with `ctx.get` instead. On a DSH without the native sidebar the tabs are
+ * simply not registered; everything else (the selection popover and
+ * 「添加到对话」) still works, because neither of those needs a sidebar.
  */
 import { createRoot, type Root } from 'react-dom/client'
-import { IconQuestionOutline14, IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import { AskPanel } from './AskPanel.tsx'
 import { ConfigPanel } from './ConfigPanel.tsx'
@@ -38,9 +33,7 @@ import { insertQuoteIntoComposerDeferred } from './draft-insert.ts'
 import { createSidebarqaStore, type SidebarqaStore } from './store.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
 import type { PendingQuote } from './store.ts'
-import { notifyTabActivated } from './tab-activation.ts'
-import { installSidebarTabs as installTabs, type SidebarOpener } from './sidebar-install.ts'
-import { ASK_TAB, HISTORY_TAB, type SidebarPortTabSpec } from './sidebar-port.ts'
+import { installSidebarTabs, type SidebarTab } from './sidebar-native.ts'
 
 /**
  * Services required before mounting. `remote` is the typed client RPC service
@@ -55,76 +48,36 @@ import { ASK_TAB, HISTORY_TAB, type SidebarPortTabSpec } from './sidebar-port.ts
 export const inject = ['sessions', 'remote', 'remote.session', 'workspaces']
 
 /**
- * This plugin's two sidebar tab types, in backend-neutral terms.
+ * This plugin's two sidebar tabs, in `sidebar-native.ts`'s terms.
+ *
+ * Each tab spells out `id` and `kind` separately on purpose. `id` is the
+ * implementation identity DSH keys the body and the live-title seats by; `kind`
+ * is the dispatch name `openTab` resolves. Deriving either from the other is what
+ * once registered a type as `ask` and then opened `dsh-sidebar-qa:ask`.
  * @param store - the plugin's own store, merged into every panel's props.
- * @returns the tab specs; each `kind` matches what the port's opens name.
+ * @returns the tab descriptors.
  */
-function sidebarTabSpecs(store: SidebarqaStore): readonly SidebarPortTabSpec[] {
+function sidebarTabSpecs(store: SidebarqaStore): readonly SidebarTab[] {
   return [
     {
-      key: ASK_TAB.key,
+      role: 'ask',
+      id: 'dsh-sidebar-qa:ask',
       kind: 'ask',
+      order: 60,
       title: () => t('askTabTitle'),
-      order: ASK_TAB.order,
-      icon: (size: number) => <IconQuestionOutline14 size={size} />,
-      // The native sidebar's `+` control only re-opens the GUIDE page, and the
-      // guide is what lists registered types — without an entry box the tab
-      // would only ever be reachable by code. (better-sidebar lists tabs in its
-      // own `+` menu and ignores this.)
-      guide: [{
-        id: 'ask',
-        order: 60,
-        title: () => t('askTabTitle'),
-        description: () => t('askGuideDesc'),
-      }],
-      component: (ctx, open) => props => (
-        <AskPanel {...props} ctx={ctx} sidebar={open} store={store} />
-      ),
+      description: () => t('askGuideDesc'),
+      component: props => <AskPanel {...props} store={store} />,
     },
     {
-      key: HISTORY_TAB.key,
+      role: 'history',
+      id: 'dsh-sidebar-qa:history',
       kind: 'history',
+      order: 70,
       title: () => t('histTabTitle'),
-      order: HISTORY_TAB.order,
-      icon: (size: number) => <IconQueueOutline14 size={size} />,
-      guide: [{
-        id: 'history',
-        order: 70,
-        title: () => t('histTabTitle'),
-        description: () => t('histGuideDesc'),
-      }],
-      component: (ctx, open) => props => (
-        <HistoryPanel {...props} ctx={ctx} sidebar={open} store={store} />
-      ),
+      description: () => t('histGuideDesc'),
+      component: props => <HistoryPanel {...props} store={store} />,
     },
   ]
-}
-
-/**
- * Install this plugin's sidebar tabs on whichever backend the deployment has.
- *
- * The returned opener is usable immediately but forwards to the real port only
- * once the backend exists — `ctx.inject` activates its child fiber
- * asynchronously, so nothing about this is synchronous. See
- * `sidebar-install.ts` for why that must not be papered over.
- * @param ctx - the client plugin context.
- * @param opts - the plugin's own store and the activation callback.
- * @returns the opener surface.
- */
-export function installSidebarTabs(
-  ctx: Context,
-  opts: {
-    /** The plugin's own store, merged into every panel's props. */
-    store: SidebarqaStore
-    /** Runs once per activation of one of this plugin's tabs. */
-    onActivate?: () => void
-  },
-): SidebarOpener {
-  return installTabs(ctx, {
-    specs: () => sidebarTabSpecs(opts.store),
-    settingsFor: { kind: 'ask', render: () => <ConfigPanel /> },
-    ...opts.onActivate === undefined ? {} : { onActivate: opts.onActivate },
-  })
 }
 
 /**
@@ -176,19 +129,11 @@ export function apply(ctx: Context): void {
     lctx.effect(() => () => { attachLocale(undefined) }, 'dsh-sidebar-qa: locale detach')
   })
 
-  // ── Sidebar backend ───────────────────────────────────────────────────────
-  // One activation callback does both jobs: heal the mounted panel (through the
-  // module-level bridge the panels subscribe to) and clear the STORE quote
-  // channel — the OPEN's own quote is the panel's to consume, but a
-  // collapsed-and-reopened panel must not resurrect the one already sent.
-  const sidebar = installSidebarTabs(ctx, {
-    store,
-    onActivate: () => {
-      const sessionId = resolveCurrentSessionId(ctx.sessions.list.getSnapshot())
-      if (sessionId !== undefined) store.setPendingQuote(sessionId, null)
-      notifyTabActivated()
-    },
-  })
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+  // Registered on DSH's own right column as soon as it exists: the services may
+  // be published after this plugin's `apply`, so the opener is a forwarding
+  // surface rather than a service handle. Nothing about this is synchronous.
+  const sidebar = installSidebarTabs(ctx, { tabs: sidebarTabSpecs(store) })
 
   // Capture a selection → park the quote → open the ask tab. The quote goes on
   // the OPEN (not only into the store) because an external plugin may also open
@@ -237,7 +182,7 @@ export function apply(ctx: Context): void {
 }
 
 /**
- * The settings panel, for surfaces that render it themselves (the better-sidebar
- * tab's gear popup today; DSH's own settings page in a later phase).
+ * The config panel. Mounted by the DSH settings section registered in
+ * `src/client/settings-section.tsx`.
  */
 export { ConfigPanel }

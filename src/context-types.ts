@@ -12,16 +12,22 @@
  *   (@cordisjs/plugin-loader), settings (@deepseek-ai/dsh-settings)
  * - client: sessions (runtime ISessions list + scope), remote (the typed
  *   client Remote service and its `session` namespace), workspaces (runtime
- *   IWorkspaces list), betterSidebar (dsh-better-sidebar registry service)
+ *   IWorkspaces list), slots / sidebarRightTabs / sidebarRight (DSH's own
+ *   right column, reached with `ctx.get` rather than injected)
  * - effect / on: the DSH-vendored cordis lifecycle helper
  *
  * Drift from upstream is contained to this file. Only the leaf fields the
  * plugin reads are declared; live cordis objects are never serialized.
+ *
+ * An upstream name may only be declared here if it actually EXISTS upstream: a
+ * member present in this file alone is a bug, not a convenience. An invented
+ * field is invisible to the compiler (this file is the only declaration in
+ * scope, so `tsc` checks the mirror against itself) and silently reads as
+ * `undefined` at run time. `SidebarqaSessionListSnapshot` carried exactly such
+ * a field (`current`) for three releases.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from 'cordis'
-import type { SidebarqaSidebarStore } from './client/ensure-panel.ts'
-import type { SidebarPortOpen } from './client/sidebar-port.ts'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Host faces
@@ -162,105 +168,6 @@ export interface SidebarqaSettingsService {
 // Client faces
 // ────────────────────────────────────────────────────────────────────────────
 
-/** Props a custom settings panel receives (mirror of better-sidebar's `settings.render`). */
-export interface SidebarqaSettingsRenderProps {
-  /** Close the settings popup. */
-  close(): void
-  /** The feature's own persisted settings blob (better-sidebar's `pluginSettings[id]`). */
-  pluginSettings?: Record<string, unknown>
-  /** Persist one plugin-owned setting into better-sidebar's `pluginSettings[id]`. */
-  updatePluginSetting?(key: string, value: unknown): void
-}
-
-/** Declarative settings of a registered tab (mirror of better-sidebar's `settings`). */
-export interface SidebarqaSettingsDeclaration {
-  /** Custom settings panel rendered in the feature's gear popup (功能配置). */
-  render?: (props: SidebarqaSettingsRenderProps) => unknown
-}
-
-/** A plugin-contributed sidebar tab (mirror of better-sidebar TabDescriptor). */
-export interface SidebarqaTabDescriptor {
-  id: string
-  title: string | (() => string)
-  icon?: unknown | ((size: number) => unknown)
-  order?: number
-  hidden?: boolean
-  single?: boolean
-  settings?: SidebarqaSettingsDeclaration
-  /**
-   * Lifecycle callback (better-sidebar v0.12.0+, `tabLifecycle` feature): fired
-   * when the tab is focused — dedupe focus, id safety-net focus, tab-bar click —
-   * and, crucially for issue #6, EVEN when `openTab` merely re-focuses an
-   * already-active tab (the reducer runs first, then the callback fires
-   * unconditionally). The 提问 flow uses it to self-heal a collapsed panel on
-   * re-activation after the user manually collapsed it.
-   */
-  onActivate?: (tab: { id: string; type: string }, scope: { sessionId: string; cwd?: string }) => void
-  component: (props: SidebarqaTabComponentProps) => unknown
-}
-
-/**
- * What the panel body asks of WHICHEVER sidebar backend hosts it.
- *
- * The panels used to reach for `ctx.betterSidebar` directly (title / meta
- * updates) and for better-sidebar's own state store (issue #6 panel healing),
- * which tied them to one backend. The adapter for each backend
- * (`src/client/sidebar-better-sidebar.ts`, `src/client/sidebar-native.ts`)
- * supplies this bridge instead, so a panel never branches on the backend.
- *
- * The three members are exactly the places the two backends differ; everything
- * else a panel needs (its identity, its scope, the pending quote) is already
- * backend-neutral in {@link SidebarqaTabComponentProps}.
- */
-export interface SidebarqaSidebarBridge {
-  /**
-   * Re-push this tab's display title in the current language.
-   *
-   * better-sidebar stores an OPEN tab's title as a plain string, so the
-   * registerTab title thunk never re-runs for it and a language change must
-   * re-push. The native backend captures a type's title into the layout record
-   * at open time and exposes no per-tab retitle, so its bridge is a no-op — the
-   * tab keeps the text it was opened with.
-   */
-  setTitle(title: string): void
-  /**
-   * Read this tab's cross-plugin quote and mark it consumed, so a later focus
-   * of the same tab does not resurface a stale quote.
-   *
-   * better-sidebar carries it on the tab's `meta` and clears it with
-   * `updateTab`. The native backend carries it in `navigation.params` and has
-   * no per-tab update at all, so its bridge remembers what it already handed
-   * out. Both return the same validated shape.
-   * @returns the quote, or null when absent, already consumed, or malformed.
-   */
-  takeQuote(): SidebarqaPendingQuote | null
-  /**
-   * Heal a collapsed host column (issue #6).
-   *
-   * A type-only open lands the tab inside an invisible collapsed panel, so the
-   * mounted panel must expand it. better-sidebar exposes no expansion method,
-   * so its bridge patches better-sidebar's own state store; the native
-   * `openTab` expands as part of placing the tab, so its bridge reads the
-   * reported presentation and does nothing.
-   *
-   * Called on mount (a freshly opened tab) and on re-activation (the panel was
-   * collapsed since this tab's last focus — an open only re-focuses, it never
-   * remounts).
-   */
-  healVisibility(): void
-  /**
-   * Open (or focus) this plugin's 追问记录 tab for `scope`.
-   *
-   * The 追问记录 tree offers a "跳转" action: switch the active conversation,
-   * then land the history tab in that session's sidebar so the user keeps the
-   * tree they were just reading. The panels cannot do that through the cordis
-   * context (they do not know which backend is active), so the adapter offers
-   * it here.
-   * @param scope - the session whose sidebar receives the tab.
-   */
-  openHistory(scope: { sessionId: string }): void
-}
-
 /** The cross-plugin quote shape (mirror of this plugin's `PendingQuote`). */
 export interface SidebarqaPendingQuote {
   text: string
@@ -268,55 +175,67 @@ export interface SidebarqaPendingQuote {
   role?: string
 }
 
-/** Props every tab component receives (the port's neutral form). */
-export interface SidebarqaTabComponentProps {
-  ctx: Context
-  scope: { sessionId: string; cwd?: string }
+/**
+ * This tab OCCURRENCE's identity and the operations it can perform.
+ *
+ * Built once per navigation by `src/client/sidebar-native.ts` from the seat's
+ * injected `useTabInfo()`. It is the whole sidebar-facing surface a panel gets,
+ * and it is deliberately three members: everything else a panel needs (its
+ * scope, the plugin ctx, the store) is already backend-neutral.
+ */
+export interface SidebarqaTabOccurrence {
+  /** Stable identity for this tab occurrence. */
+  tabId: string
   /**
-   * The tab's identity. Only `id` is carried: the panels need nothing else, and
-   * the port deliberately does not expose backend-specific tab fields (a
-   * better-sidebar `meta` blob or a native navigation record) to the body.
-   */
-  tab: { id: string }
-  visible: boolean
-  /** The better-sidebar state store (its own, NOT this plugin's localStorage store).
-   *  Present at runtime; typed optional so host-half compilation never needs it. */
-  store?: SidebarqaSidebarStore
-  /**
-   * The active backend's occurrence: this tab's identity, its activation
-   * revision, and the backend's capabilities (the `SidebarPortOpen` of
-   * `src/client/sidebar-port.ts`, imported type-only — the port module imports
-   * this file for its service faces, and a type-only import keeps that cycle
-   * out of the emitted bundle).
+   * How many times this tab has been NAVIGATED TO — the open that created it,
+   * and every later open that revealed or re-focused it
+   * (`navigation.revision`; `0` for a record nobody opened by address, such as
+   * a tab restored by undo).
    *
-   * OPTIONAL at the type level, and every panel guards it: a panel rendered
-   * without one must still mount and render (it only loses title refresh, the
-   * cross-plugin quote, panel healing, and its own tab opens). That guard is
-   * what keeps a half-composed deployment from crashing the whole sidebar.
+   * It is the one fact a body must observe for a re-open to do anything: an open
+   * never remounts an existing tab, so a body that read its open payload only on
+   * mount would ignore a second external open into the same tab.
    */
-  sidebar?: SidebarPortOpen
+  revision: number
+  /**
+   * Read this occurrence's cross-plugin quote and mark it consumed, so a later
+   * focus does not resurface a stale quote.
+   *
+   * The quote rides the open as `navigation.params`, which the layout record
+   * cannot clear, so the adapter remembers what it already handed out. A fresh
+   * occurrence — one per navigation — starts with it armed again.
+   * @returns the quote, or null when absent, already consumed, or malformed.
+   */
+  takeQuote(): SidebarqaPendingQuote | null
+  /**
+   * Open (or focus) this plugin's 追问记录 tab for `scope`.
+   *
+   * The 追问记录 tree offers a 跳转 action: switch the active conversation, then
+   * keep the tree open in that session's sidebar. A panel cannot do that through
+   * the cordis context — native `openTab` acts on whatever session surface is
+   * MOUNTED, not on a session named in the call — so the occurrence carries the
+   * plugin's own open instead.
+   * @param scope - the session whose sidebar receives the tab.
+   */
+  openHistory(scope: { sessionId: string }): void
 }
 
-/** The betterSidebar registry service published as `ctx.betterSidebar`. */
-export interface SidebarqaBetterSidebarService {
-  registerTab(descriptor: SidebarqaTabDescriptor): () => void
+/** Props every tab component receives. */
+export interface SidebarqaTabComponentProps {
+  ctx: Context
+  scope: { sessionId: string }
+  /** The tab's identity. Only `id` is carried; the panels need nothing else. */
+  tab: { id: string }
+  visible: boolean
   /**
-   * Open (or focus) a tab. `scope` (v0.12.0+ targeted open) names the session
-   * whose sidebar state receives the open — the tab lands there even when that
-   * session is not the one on screen, and the UI's active session is not
-   * switched. Omitted scope targets the active session. `meta` (v0.13.0+
-   * better-sidebar) carries JSON-serializable custom state onto the tab —
-   * external plugins use `meta.quote` to hand this panel a pending quote.
+   * This occurrence's identity and capabilities.
+   *
+   * OPTIONAL at the type level, and every panel guards it: a panel rendered
+   * without one must still mount and render (it only loses the cross-plugin
+   * quote and its own 追问记录 opens). That guard is what keeps a half-composed
+   * deployment from taking the whole sidebar down.
    */
-  openTab(
-    seed: { type: string; title?: string; id?: string; path?: string; url?: string; meta?: unknown },
-    scope?: { sessionId: string; cwd?: string },
-  ): void
-  /**
-   * Update one open tab's display fields (better-sidebar v0.12.0+). Unknown
-   * tab ids are a no-op. Used to consume a `meta.quote` after it was sent.
-   */
-  updateTab(tabId: string, patch: { title?: string; path?: string; meta?: unknown }): void
+  sidebar?: SidebarqaTabOccurrence
 }
 
 /** One session list row the client reads (display title + lineage + cwd + activity). */
@@ -652,7 +571,7 @@ export interface SidebarqaWorkspacesService {
  * LocaleRuntime — only the slices this plugin touches). Following it makes the
  * plugin's copy track the Host-backed language preference (`locale.preference`
  * in settings.yaml) rather than the raw browser language, exactly like every
- * first-party DSH surface and like dsh-better-sidebar's own panel chrome.
+ * first-party DSH surface.
  *
  * `getSnapshot()` is narrowed to `{ active }` on purpose: the real runtime also
  * carries `locales` / `revision`, but a narrower mirror is less drift surface,
@@ -930,12 +849,6 @@ declare module 'cordis' {
     remote: SidebarqaRemoteService
     workspaces: SidebarqaWorkspacesService
     /**
-     * The client-side sidebar registry: external plugins register tab types
-     * here. Provided by dsh-better-sidebar's client half; undefined on the
-     * host side. The plugin requires it (hard peer dependency).
-     */
-    betterSidebar: SidebarqaBetterSidebarService
-    /**
      * The DSH client locale service (`@deepseek-ai/dsh-client-locale`): the
      * plugin's copy follows its active language and its dictionaries register
      * under the `sidebarQa` namespace. Client side only, and OPTIONAL — the
@@ -957,29 +870,29 @@ declare module 'cordis' {
      */
     conversation: SidebarqaConversationService
     /**
-     * DSH's native right-sidebar slot registry (`@deepseek-ai/dsh-client-ui-slots`,
-     * a PLATFORM_MODULES seed word). Client side only; a deployment that ships
+     * DSH's right-sidebar slot registry (`@deepseek-ai/dsh-client-ui-slots`, a
+     * PLATFORM_MODULES seed word). Client side only; a deployment that ships
      * DSH's own sidebar always has it. Read with `ctx.get('slots')` rather than
-     * listed in `inject`, because the whole native backend is optional — see
-     * `src/client/sidebar-port.ts`. Declaring it here is what lets `ctx.get`
-     * return the typed face instead of `any`.
+     * listed in `inject`, because the sidebar is an optional surface. Declaring
+     * it here is what lets `ctx.get` return the typed face instead of `any`.
      */
     slots: SidebarqaSlotsService
     /**
-     * DSH's native right-sidebar tab-type registry
+     * DSH's own right-sidebar tab-type registry
      * (`@deepseek-ai/dsh-client-ui-sidebar-right`, DSH ≥ 0.1.5-alpha.1), published
-     * by `ctx.reflect.provide('sidebarRightTabs', …)`. ABSENT on a deployment
-     * without the native sidebar, so it is optional in the strict sense: the
-     * client half probes for it with `ctx.get('sidebarRightTabs')` and falls back
-     * to dsh-better-sidebar, or stays inactive when neither backend exists. See
-     * `src/client/sidebar-port.ts`.
+     * by `ctx.reflect.provide('sidebarRightTabs', …)`. ABSENT on a DSH older than
+     * that package, so it is read with `ctx.get()` and NEVER injected: an
+     * injected service with no implementation parks this plugin's fiber, and
+     * `boot-client.ts` fails the entire web boot on a parked fiber instead of
+     * degrading. A host without it still gets the selection popover and
+     * 「添加到对话」. See `src/client/sidebar-native.ts`.
      */
     sidebarRightTabs: SidebarqaSidebarRightTabsService
     /**
-     * DSH's native right-sidebar navigation face, published by
+     * DSH's own right-sidebar navigation face, published by
      * `ctx.reflect.provide('sidebarRight', …)`. Optional in the same sense as
-     * `sidebarRightTabs`; the two always appear together. See
-     * `src/client/sidebar-port.ts`.
+     * `sidebarRightTabs`; the two are provided together. See
+     * `src/client/sidebar-native.ts`.
      */
     sidebarRight: SidebarqaSidebarRightService
     /**
@@ -997,4 +910,3 @@ declare module 'cordis' {
 }
 
 export type { Context }
-export type { SidebarqaSidebarStore } from './client/ensure-panel.ts'

@@ -17,7 +17,6 @@ import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarqaSessionListSnapshot, SidebarqaTabComponentProps } from '../context-types.ts'
 import type { SidebarqaStore } from './store.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
-import { onTabActivated } from './tab-activation.ts'
 import { filterHistoryToWorkspace, rootsOf, sessionStatus, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
 import { timeLabel } from './history-time.ts'
 import { t } from './locales.ts'
@@ -33,39 +32,25 @@ const NOW_TICK_MS = 60_000
 
 export function HistoryPanel({ ctx, store, scope, visible, sidebar, tab }: HistoryPanelProps) {
   // Follow the DSH language: t() reads at call time, so this single root
-  // re-render re-localizes the whole tree (keep it free of React.memo).
-  const localeRevision = useLocaleRevision()
+  // re-render re-localizes the whole tree (keep it free of React.memo). The
+  // returned revision is unused here — subscribing IS the point.
+  useLocaleRevision()
   const snapshot = useSyncExternalStore(
     (cb: () => void) => store.subscribe(cb),
     () => store.getSnapshot(),
   )
 
-  // Re-push the tab's chip text whenever the language changes; the active
-  // backend decides whether it can (see AskPanel for the full note).
-  useEffect(() => {
-    sidebar?.capabilities.setTitle(t('histTabTitle'))
-  }, [sidebar, localeRevision])
+  // Neither the tab chip nor panel expansion needs anything from this panel:
+  // `sidebar-native.ts` registers a live title seat (so the chip re-localizes on
+  // its own), and `openTab` expands the column as part of placing the tab.
 
   // Land (or focus) this plugin's history tab in a session's sidebar. Stable
   // across renders so the tree's nodes do not re-render on every tick; `sidebar`
-  // is the occurrence handed down once per activation.
+  // is the occurrence handed down once per navigation.
   const openHistory = useCallback(
-    (sessionId: string) => { sidebar?.capabilities.openHistory({ sessionId }) },
+    (sessionId: string) => { sidebar?.openHistory({ sessionId }) },
     [sidebar],
   )
-
-  // Self-healing panel expansion (issue #6): the 追问记录 tab is also opened
-  // by a type-only openTab (+ menu / 跳转), which never auto-expands a
-  // collapsed panel. Heal on mount (fresh tab) and on re-activation (the
-  // panel was collapsed since the tab's last focus — an open only re-focuses,
-  // never remounts). Only better-sidebar needs the help; the native bridge is
-  // a no-op because `openTab` expands the column as part of placing the tab.
-  useEffect(() => {
-    if (sidebar === undefined) return
-    const { capabilities } = sidebar
-    capabilities.healVisibility()
-    return onTabActivated(() => capabilities.healVisibility())
-  }, [sidebar])
 
   // The workspace feed (session↔workspace membership is not in the session
   // list; the workspaces list is the authoritative projection).
