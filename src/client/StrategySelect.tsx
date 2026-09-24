@@ -6,11 +6,20 @@
  * so the composer row reads as one DSH-style control set.
  */
 import { useState, type ReactNode } from 'react'
-import { IconChevronDownOutline14, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
 import { historyStrategyOptions } from './config-fields.ts'
+import { iconOf } from './host-primitives.ts'
+import { Glyph } from './primitives.ts'
 import { t } from './locales.ts'
 import css from './ask-panel.module.css'
+
+/**
+ * The chip's chevron, resolved by name across the host's icon-set rename (0.1.7
+ * dropped `IconChevronDownOutline14` for `...Regular`); `undefined` on a host that
+ * has neither, which {@link Glyph} renders as no glyph rather than as a crash.
+ */
+const ChevronDown = iconOf('IconChevronDownOutline', 14)
 
 /** Join truthy class names (no clsx dependency in this package). */
 function cx(...names: Array<string | false | null | undefined>): string {
@@ -109,7 +118,7 @@ export function StrategySelect({ value, onChange, disabled = false }: StrategySe
           <span className={css.chipIcon} aria-hidden>{strategyGlyph(value)}</span>
           <span className={css.chipLabel}>{current.label}</span>
           <span className={cx(css.chipChevron, open && css.chipChevronOpen)} aria-hidden>
-            <IconChevronDownOutline14 />
+            <Glyph icon={ChevronDown} />
           </span>
         </button>
       }

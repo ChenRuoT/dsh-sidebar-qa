@@ -13,15 +13,26 @@
  * DSH left (workspace browser) panel uses.
  */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { IconTriangleRightFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context, SidebarqaSessionListSnapshot, SidebarqaTabComponentProps } from '../context-types.ts'
 import type { SidebarqaStore } from './store.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
 import { filterHistoryToWorkspace, rootsOf, sessionStatus, subtreeLatestUpdatedAt, workspaceOwningSession } from './history-scope.ts'
 import { timeLabel } from './history-time.ts'
 import { t } from './locales.ts'
+import { iconOf } from './host-primitives.ts'
+import { Glyph } from './primitives.ts'
 import { useLocaleRevision } from './use-locale.ts'
 import css from './history-panel.module.css'
+
+/**
+ * The fold chevron, resolved by NAME rather than imported: DSH renamed its whole
+ * icon set in 0.1.7 (size suffix → weight suffix, no aliases), so the named import
+ * this file used to carry is `undefined` at render time — and React renders
+ * `undefined` as "Element type is invalid" (error #130). `primitives.ts` owns the
+ * rule and the fallback chain; `undefined` means "this host has no such glyph",
+ * which {@link Glyph} draws as nothing.
+ */
+const FoldArrow = iconOf('IconTriangleRightFill', 14)
 
 interface HistoryPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
   store: SidebarqaStore
@@ -208,7 +219,7 @@ function TreeNode(props: {
             aria-expanded={!collapsed}
             onClick={() => { store.toggleCollapsed(id) }}
           >
-            <IconTriangleRightFill14 className={collapsed ? css.arrow : `${css.arrow} ${css.arrowOpen}`} />
+            <Glyph icon={FoldArrow} className={collapsed ? css.arrow : `${css.arrow} ${css.arrowOpen}`} />
           </button>
         ) : (
           <span className={css.collapseSpacer} aria-hidden="true" />

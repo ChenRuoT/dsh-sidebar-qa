@@ -33,6 +33,10 @@
 
 ## 📦 Changelog
 
+### 1.0.2 - 2026-09-24
+
+**Fixes "opening the side panel reports `The panel failed to render: Minified React error #130 … but got: undefined`"**: DSH `0.1.7-alpha.1` renamed the whole host icon set from a size suffix to a stroke-weight suffix (`IconQuestionOutline14` → `IconQuestionOutlineRegular` / `…Medium`) with no aliases, so the glyphs this plugin imported by name were `undefined` at runtime and the panel's composer row threw React error #130 on its first render (the plugin's own boundary then contained it into the retryable strip you saw). Icons are now **resolved by name** (`Regular → Medium → legacy size-suffixed`), and a glyph the host does not have renders as nothing instead of crashing; typed API surfaces (`MarkdownText` / `Tooltip` / `Menu`) are still imported by name. **Client half only — a hard browser refresh is enough.**
+
 ### 1.0.0 - 2026-09-20
 
 **The first 1.x: DSH's own right sidebar is the only backend, with zero extra dependencies.** The breaking change is the **removal of the `dsh-better-sidebar` backend** (below), which is why this is a major release: installing `dsh-sidebar-qa` is now all it takes.

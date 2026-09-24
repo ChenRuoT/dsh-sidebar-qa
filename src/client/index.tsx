@@ -22,13 +22,13 @@
  * 「添加到对话」) still works, because neither of those needs a sidebar.
  */
 import { createRoot, type Root } from 'react-dom/client'
-import { IconQuestionOutline14, IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import { AskPanel } from './AskPanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
 import { SelectionPopover } from './SelectionPopover.tsx'
 import { createSelectionController } from './selection.ts'
 import { attachLocale, en, LOCALE_NS, t, zh } from './locales.ts'
+import { iconOf } from './host-primitives.ts'
 import { insertQuoteIntoComposerDeferred } from './draft-insert.ts'
 import { createSidebarqaStore, type SidebarqaStore } from './store.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
@@ -63,9 +63,15 @@ export const inject = ['sessions', 'remote', 'remote.session', 'workspaces']
  * live title seat) and the guide capsule (`+`). Both fall back to something
  * generic without it (bare text / the guide's cube placeholder), so it is part of
  * the tab's identity, not decoration: these are the two glyphs the pre-native
- * registration used (`IconQuestionOutline14` for 追问, `IconQueueOutline14` for
+ * registration used (`IconQuestionOutline` for 追问, `IconQueueOutline` for
  * 追问记录) and they are the host's own icon set, which the platform module table
  * already provides — no value import from another feature plugin.
+ *
+ * They are RESOLVED by name rather than imported, because the host renamed its
+ * whole icon set in 0.1.7 (size suffix → weight suffix) and a named import of a
+ * deleted export is `undefined` at render time. `primitives.ts` owns that rule and
+ * the fallback chain; `undefined` here means "this host has no such glyph", which
+ * the host itself renders as its placeholder.
  * @param store - the plugin's own store, merged into every panel's props.
  * @returns the tab descriptors.
  */
@@ -76,7 +82,7 @@ function sidebarTabSpecs(store: SidebarqaStore): readonly SidebarTab[] {
       id: 'dsh-sidebar-qa:ask',
       kind: 'ask',
       order: 60,
-      icon: IconQuestionOutline14,
+      icon: iconOf('IconQuestionOutline', 14),
       title: () => t('askTabTitle'),
       description: () => t('askGuideDesc'),
       component: props => <AskPanel {...props} store={store} />,
@@ -86,7 +92,7 @@ function sidebarTabSpecs(store: SidebarqaStore): readonly SidebarTab[] {
       id: 'dsh-sidebar-qa:history',
       kind: 'history',
       order: 70,
-      icon: IconQueueOutline14,
+      icon: iconOf('IconQueueOutline', 14),
       title: () => t('histTabTitle'),
       description: () => t('histGuideDesc'),
       component: props => <HistoryPanel {...props} store={store} />,

@@ -33,6 +33,10 @@
 
 ## 📦 更新记录
 
+### 1.0.2 - 2026-09-24
+
+**修「打开侧面板报 `面板渲染出错：Minified React error #130 … but got: undefined`」**：DSH `0.1.7-alpha.1` 把整套宿主图标从「尺寸后缀」改成「字重后缀」（`IconQuestionOutline14` → `IconQuestionOutlineRegular` / `…Medium`）且不留别名，插件按名 import 的 glyph 在运行期是 `undefined`，面板输入区一渲染就抛 React error #130（随后由本插件的错误边界就地隔离成那条可重试的说明条）。现在图标**按名解析**（`Regular → Medium → 旧尺寸名`），宿主没有的 glyph 渲染为空而不是崩溃；`MarkdownText` / `Tooltip` / `Menu` 这类有类型的 API 面仍按名 import。**仅 client 半改动，浏览器硬刷新即可生效。**
+
 ### 1.0.0 - 2026-09-20
 
 **首个 1.x：只注册进 DSH 自带右侧栏，零额外依赖。** 破坏性变更在于**移除了 `dsh-better-sidebar` 后端**（见下），因此按 semver 走 major：只装 `dsh-sidebar-qa` 即可，不再需要任何 peer 侧边栏基座。

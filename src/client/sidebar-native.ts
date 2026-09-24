@@ -64,7 +64,6 @@
  */
 import { createElement, Fragment, useMemo } from 'react'
 import type { ComponentType } from 'react'
-import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   Context,
   SidebarqaPendingQuote,
@@ -77,6 +76,7 @@ import type {
 } from '../context-types.ts'
 import { resolveCurrentSessionId } from './current-session.ts'
 import { containPanel } from './panel-boundary.tsx'
+import { Glyph, type IconComponent } from './primitives.ts'
 import { showSessionFirst } from './show-session.ts'
 import { slotsServiceOf } from './slots.ts'
 import { useLocaleRevision } from './use-locale.ts'
@@ -131,9 +131,11 @@ export interface SidebarTab {
    * Both placements are the host's, and both FALL BACK to something generic when
    * this is absent — the chip shows bare text, the guide capsule draws its cube
    * placeholder — so an icon-less type reads as a placeholder rather than as this
-   * plugin. `IconProps` is the host's own icon contract (`size` + `className`).
+   * plugin. It is therefore OPTIONAL, and it is resolved rather than imported:
+   * the host renamed its whole icon set in 0.1.7, so a name that exists on one
+   * deployment is `undefined` on another (see `primitives.ts`).
    */
-  readonly icon: ComponentType<IconProps>
+  readonly icon?: IconComponent | undefined
   /** The tab chip's initial text, captured into the layout record at open time. */
   readonly title: () => string
   /** One line under the guide capsule, when the guide has room to draw it. */
@@ -300,6 +302,11 @@ function nativeAskParams(quote: unknown): Record<string, unknown> | undefined {
  * `createElement`, not JSX: this module is a `.ts`. The fragment mirrors the
  * guide type's own chip (`ui-sidebar-right/tabs/guide/GuideTitle.tsx`), which is
  * what the strip's row layout is written against.
+ *
+ * The glyph goes through {@link Glyph} because a tab may have none on this host:
+ * `createElement(undefined, …)` is React error #130, and this seat sits OUTSIDE
+ * this plugin's containment boundary, so the throw would be handled by the host's
+ * per-entry boundary — which retires the registration for every session.
  * @param tab - the registered tab.
  * @returns the component to register in the title seat.
  */
@@ -309,7 +316,7 @@ function titleFor(tab: SidebarTab): () => unknown {
     return createElement(
       Fragment,
       null,
-      createElement(tab.icon, { className: titleCss.titleIcon }),
+      createElement(Glyph, { icon: tab.icon, className: titleCss.titleIcon }),
       tab.title(),
     )
   }
@@ -443,9 +450,10 @@ function registerTab(
   // ever re-opens the guide page, and the guide lists registered types through
   // exactly these entry boxes. Without one the tab could only be opened by code.
   //
-  // The entry's `icon` is a required field HERE because its absence is invisible
-  // in the type system but visible to the user: `GuideBody`'s capsule draws its
-  // cube placeholder for any entry that names no glyph.
+  // The entry's `icon` is optional to the host, which draws its cube placeholder
+  // for an entry that names no glyph — so an unresolved glyph (see `primitives.ts`)
+  // is passed as NO key rather than as `undefined`, keeping the host's own
+  // fallback the only thing the capsule can do.
   disposers.push(tabs.register({
     id: tab.id,
     kind: tab.kind,
@@ -456,7 +464,7 @@ function registerTab(
       order: tab.order,
       title: tab.title,
       description: tab.description,
-      icon: tab.icon,
+      ...(tab.icon === undefined ? {} : { icon: tab.icon }),
     }],
   }))
 

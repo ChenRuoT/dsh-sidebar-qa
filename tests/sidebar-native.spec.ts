@@ -459,6 +459,28 @@ describe('installSidebarTabs', () => {
     expect(markup.indexOf('data-icon')).toBeLessThan(markup.indexOf('ASK-TITLE'))
   })
 
+  it('registers and titles a tab whose glyph this host does not have', () => {
+    // The host renamed its whole icon set in 0.1.7, so a glyph may be undefined at
+    // runtime (see `primitives.ts`). Two things must then hold: the guide entry
+    // must name NO icon — so the host draws its own cube placeholder instead of
+    // being handed `undefined` — and the live title must render its label alone.
+    // `createElement(undefined, …)` is React error #130, and this seat is OUTSIDE
+    // this plugin's containment boundary: the throw would be answered by the
+    // host's per-entry boundary, which retires the registration page-wide.
+    const native = fakeNative()
+    const tab: SidebarTab = { ...tabOf('ask'), icon: undefined }
+    installSidebarTabs(fakeCtx(mounted(native)).ctx, { tabs: [tab] })
+
+    const entry = native.types[0]?.guide?.[0]
+    expect(entry).toBeDefined()
+    expect(entry !== undefined && 'icon' in entry).toBe(false)
+
+    const Title = seatOf(native, TITLE_SEAT, ASK_ID)
+    const markup = renderToStaticMarkup(createElement(Title as never, {} as never))
+    expect(markup).toContain('ASK-TITLE')
+    expect(markup).not.toContain('data-icon')
+  })
+
   it('waits for a sidebar that arrives after apply, then registers exactly once', () => {
     const native = fakeNative()
     const h = fakeCtx({})

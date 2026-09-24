@@ -2,6 +2,21 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.0.2] - 2026-09-24
+
+**修「打开侧面板就报 `面板渲染出错：Minified React error #130 … but got: undefined`」：宿主在 `0.1.7-alpha.1` 重命名了整套图标，而本插件按名 import 的那些 glyph 在运行期就是 `undefined`。**
+
+### Fixed
+
+- **宿主图标改为按名解析，不再按名 import**（**仅 client 半改动，浏览器硬刷新即可**）：`feat(web): unify the client visual language`（首个发布 `0.1.7-alpha.1`）把宿主整套图标从「尺寸后缀」改成「字重后缀」——`IconQuestionOutline14` / `IconCheckOutline16` → `IconQuestionOutlineRegular` / `IconQuestionOutlineMedium`——**且不留任何别名**（`packages/client/ui-primitives/src/icons/index.tsx` 里旧名字已彻底删除）。
+  - **症状**：面板输入区（`ModelSelect` / `StrategySelect` 的 chevron、勾选、警告 glyph）在**本插件的 containment 边界内**抛错，于是整块面板被替换成那条可重试的崩溃说明条；tab chip 的 glyph 在边界**之外**（活标题席位）抛错，由宿主的 per-entry 边界接管——代价是整个标题注册被 retire（页面上 tab 标题丢失）。两处都是同一个根因。（那条说明条本身按设计工作：以前这种情况是**整块变白且无法恢复**。）
+  - **为什么 `tsc` 拦不住**：本包的类型桩精确钉在 `0.1.6-alpha.2`（改名前的世代），旧名字在桩里仍然声明；而运行期交给插件的是**宿主自己的模块命名空间**，于是这些绑定就是 `undefined`——React 对 `undefined` 的答复是 error #130（`Element type is invalid … but got: undefined`，URL 里 `args[]=undefined&args[]=` 正是它）。
+  - 新增 `src/client/primitives.ts`（**纯规则**，node 可测）：`pickExport` / `iconIn` / `Glyph`——解析链 `Regular → Medium → <base><legacySize>`；「名字在但不是组件」的值会被跳过；三种名字都没有时返回 `undefined`，由 `Glyph` 渲染为空（**素材缺失是降级，不是故障**）。
+  - 新增 `src/client/host-primitives.ts`：**唯一** value-import `@deepseek-ai/dsh-client-ui-primitives` 的模块，把宿主命名空间绑给上面那条规则（`iconOf`）。平台模块表在任何 bundle factory 运行前就已冻结，所以在模块作用域读取是安全的——这与 cordis 服务「必须在调用点现场探测」的规则不同。
+  - 调用点全部改走 `iconOf` + `Glyph`：`index.tsx`（两个 tab 的 glyph）、`ModelSelect.tsx`（4 个）、`StrategySelect.tsx`、`HistoryPanel.tsx`。`SidebarTab.icon` 变成**可选**；guide 条目在拿不到 glyph 时**不写 `icon` 键**（把宿主的方块占位留给宿主自己画）；`titleFor` 经 `Glyph` 渲染，绝不 `createElement(undefined, …)`。
+  - `MarkdownText` / `Tooltip` / `Menu` 仍是按名 import：它们是**有类型的 API 面**，宿主跨版本保留；会被随意改名的只有图标素材。
+  - 回归：`tests/primitives.spec.ts`（解析链 / 非组件值 / 两种世代 / 接线守卫「只有 `host-primitives.ts` 能 value-import 宿主命名空间」「任何 client 文件都不得再按名 import `Icon*`」/ 装了 DSH 源码 checkout 时直接核对真机导出表）；`tests/panel-icons.spec.ts`（用**只有 0.1.7 名字**的宿主 mock 渲染 `StrategySelect`——旧代码在这条用例上会抛 #130）；`tests/sidebar-native.spec.ts` 新增「宿主没有这个 glyph 时」的注册 + 标题渲染用例。
+
 ## [1.0.1] - 2026-09-24
 
 **修 [issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)：在 `@deepseek-ai/dsh@0.1.7-alpha.1+` 上启动不再打 `settings registration failed: TypeError: settingsService.register is not a function`。**

@@ -17,7 +17,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type FocusEvent } from 'react'
 import {
-  IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14, IconWarningOutline16, Tooltip,
+  Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '../context-types.ts'
 import type {
@@ -29,6 +29,8 @@ import type {
 import { t } from './locales.ts'
 import { useLocaleRevision } from './use-locale.ts'
 import { useProjectionValue } from './use-projection.ts'
+import { iconOf } from './host-primitives.ts'
+import { Glyph } from './primitives.ts'
 import { modelSelectionOfProjection, remoteErrorText } from './session-wire.ts'
 import { effectiveEffortOf, isNoopSelection, modelChoiceId, modelChoicesOf, modelSelectionOf } from './model-menu.ts'
 import type { ModelSeatMode } from './model-seat.ts'
@@ -38,6 +40,20 @@ import css from './ask-panel.module.css'
 function cx(...names: Array<string | false | null | undefined>): string {
   return names.filter(Boolean).join(' ')
 }
+
+/*
+ * This seat's glyphs, resolved by NAME rather than imported: DSH renamed its
+ * whole icon set in 0.1.7 (size suffix → weight suffix, no aliases), so a named
+ * import of the old spelling is `undefined` at render time — and React renders
+ * `undefined` as "Element type is invalid" (error #130), which took this whole
+ * panel down through its containment boundary. `primitives.ts` owns the rule and
+ * the fallback chain; `undefined` means "this host has no such glyph" and
+ * {@link Glyph} then draws nothing.
+ */
+const ChevronDown = iconOf('IconChevronDownOutline', 14)
+const ChevronRight = iconOf('IconChevronRightOutline', 14)
+const Warning = iconOf('IconWarningOutline', 16)
+const Check = iconOf('IconCheckOutline', 16)
 
 /** One pane of the dropdown: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'models' | 'effort'
@@ -351,7 +367,7 @@ export function ModelSelect({
         <span className={css.chipLabel}>{modelLabel}</span>
         {effortLabel !== undefined && <span className={css.chipEffort}>{effortLabel}</span>}
         <span className={cx(css.chipChevron, open && css.chipChevronOpen)} aria-hidden>
-          <IconChevronDownOutline14 />
+          <Glyph icon={ChevronDown} />
         </span>
       </button>
 
@@ -362,13 +378,13 @@ export function ModelSelect({
               <button ref={itemRef()} type="button" role="menuitem" className={css.modelCell} onClick={() => { setPane('models') }}>
                 <span className={css.modelCellLabel}>{t('modelCellModel')}</span>
                 <span className={css.modelCellValue}>{modelLabel}</span>
-                <IconChevronRightOutline14 className={css.modelCellChevron} />
+                <Glyph icon={ChevronRight} className={css.modelCellChevron} />
               </button>
               {reasoning !== undefined && (
                 <button ref={itemRef()} type="button" role="menuitem" className={css.modelCell} onClick={() => { setPane('effort') }}>
                   <span className={css.modelCellLabel}>{t('modelCellEffort')}</span>
                   <span className={css.modelCellValue}>{effortLabel}</span>
-                  <IconChevronRightOutline14 className={css.modelCellChevron} />
+                  <Glyph icon={ChevronRight} className={css.modelCellChevron} />
                 </button>
               )}
             </>
@@ -379,14 +395,14 @@ export function ModelSelect({
               {dir.status === 'loading' && <div className={css.modelStatus}>{t('commonLoading')}</div>}
               {dir.error !== null && (
                 <div className={css.modelError}>
-                  <IconWarningOutline16 />
+                  <Glyph icon={Warning} />
                   <span>{t('errModelFailed', { detail: dir.error })}</span>
                   <button type="button" className={css.modelRetry} onClick={load}>{t('commonRetry')}</button>
                 </div>
               )}
               {dir.failures.map(failure => (
                 <div className={css.modelWarn} key={failure.id}>
-                  <IconWarningOutline16 />
+                  <Glyph icon={Warning} />
                   <span>{t('modelFailureDetail', { name: failure.name, message: failure.message ?? t('modelLoadFailed') })}</span>
                   <button type="button" className={css.modelRetry} onClick={load}>{t('commonRetry')}</button>
                 </div>
@@ -424,7 +440,7 @@ export function ModelSelect({
                               )}
                             </span>
                             <span className={css.modelCheck}>
-                              {selected ? <IconCheckOutline16 /> : null}
+                              {selected ? <Glyph icon={Check} /> : null}
                             </span>
                           </button>
                         )
@@ -458,7 +474,7 @@ export function ModelSelect({
                       <span className={css.modelName}>{level.label}</span>
                     </span>
                     <span className={css.modelCheck}>
-                      {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
+                      {effectiveEffort === level.effort ? <Glyph icon={Check} /> : null}
                     </span>
                   </button>
                 ))}
