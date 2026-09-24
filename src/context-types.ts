@@ -178,7 +178,16 @@ export interface SidebarqaSettingsDescriptor {
   revision: number
 }
 
-/** The settings service face (register + revision-guarded update + describe). */
+/** The settings service face (register + revision-guarded update + describe).
+ *
+ * Upstream: `packages/settings/settings/src/index.ts` (`SettingsProvider`) —
+ * `register` :419, `describe` :499, `update` :551 as of `dsh-settings@0.1.5-rc.2`.
+ * `register` is ABSENT from `dsh-settings@0.1.7-alpha.1+` (`SettingsForms`, which
+ * only ships `configure` / `describe` / `update` / `replace` / `mutate` / `schema`),
+ * so no caller may assume it exists — the host half probes for it structurally in
+ * `src/settings-face.ts` (issue #19). `describe` / `update` survive that change but
+ * address a profile ENTRY ID there, not a plugin-declared namespace.
+ */
 export interface SidebarqaSettingsService {
   register<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T>
   describe(options?: { redactSecrets?: boolean }): SidebarqaSettingsDescriptor[]

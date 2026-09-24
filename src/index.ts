@@ -40,6 +40,7 @@ import {
   RECENT_SEGMENT_MAX,
   splitRecent,
 } from './summarize.ts'
+import { openSettingsSeam, type SidebarqaConfigFace } from './settings-face.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { readJsonBody, requireString, SidebarqaError, writeError, writeJson, writeOk } from './wire.ts'
 import {
@@ -54,7 +55,6 @@ import type {
   SidebarqaLlmMessage,
   SidebarqaLlmModel,
   SidebarqaSettingsScope,
-  SidebarqaSettingsService,
 } from './context-types.ts'
 
 export { SIDEBARQA_DEFAULTS, SIDEBARQA_SETTINGS_NS } from './config.ts'
@@ -108,12 +108,6 @@ export interface TitleResult {
 interface CacheEntry {
   sourceSeq: number
   summary: string
-}
-
-/** The config namespace's live face: value + revision read, revision-guarded write. */
-interface ConfigFace {
-  get(): { value?: unknown; revision?: number }
-  update(patch: Record<string, unknown>, expectedRevision?: number): Promise<{ value?: unknown; revision?: number }>
 }
 
 /** One API method dispatch table entry. */
@@ -176,7 +170,7 @@ function buildApi(
   ctx: Context,
   getConfig: () => SidebarqaConfig,
   cache: Map<string, CacheEntry>,
-  getConfigFace: () => ConfigFace | undefined,
+  getConfigFace: () => SidebarqaConfigFace | undefined,
 ): Record<string, ApiMethod> {
   return {
     config: (): SidebarqaConfig => getConfig(),
@@ -200,7 +194,11 @@ function buildApi(
     'config.update': async (payload): Promise<{ value?: unknown; revision?: number }> => {
       const face = getConfigFace()
       if (face === undefined) {
-        throw new SidebarqaError('settings-rejected', 'the settings service is not mounted in this deployment', 503)
+        throw new SidebarqaError(
+          'settings-rejected',
+          'this host exposes no sidebarqa settings namespace (the settings service is absent, or it offers no namespace registration)',
+          503,
+        )
       }
       const record = payload as { patch?: unknown; expectedRevision?: unknown } | null
       const patch = record?.patch
@@ -372,36 +370,39 @@ export function apply(ctx: Context): void {
   }
 
   // ── User-editable configuration ───────────────────────────────────────────
-  // The `sidebarqa` namespace is optional: deployments without a settings service
-  // (or a schemastery mismatch) fall back to SIDEBARQA_DEFAULTS and the summarize
-  // route still answers. The registration is defensive — a refusal must never
-  // disable the plugin. The config face adds a revision-guarded update path so
-  // the webview config panel persists edits without silently overwriting a
-  // concurrent change (mirror of the settings seam's own guard).
+  // The `sidebarqa` namespace is OPTIONAL and the host may not offer one at all:
+  // `dsh-settings` ≥ 0.1.7 dropped namespace registration (its `SettingsForms`
+  // derives editable fields from the plugin's own `Config` schema, addressed by
+  // profile entry id — see `settings-face.ts`). So the seam is probed by
+  // STRUCTURE, never by version, and every refusal degrades: the summarize route
+  // still answers on SIDEBARQA_DEFAULTS. A refusal must never disable the plugin.
+  // The config face adds a revision-guarded update path so the webview config
+  // panel persists edits without silently overwriting a concurrent change
+  // (mirror of the settings seam's own guard).
   let configScope: SidebarqaSettingsScope<SidebarqaConfig> | undefined
-  let configFace: ConfigFace | undefined
+  let configFace: SidebarqaConfigFace | undefined
   ctx.inject(['settings'], (sctx) => {
-    const settingsService = sctx.settings as unknown as SidebarqaSettingsService
-    try {
-      configScope = settingsService.register<SidebarqaConfig>(SIDEBARQA_SETTINGS_NS, SidebarqaPrefsSchema)
-      const viewOf = (): { value?: unknown; revision?: number } => {
-        const descriptor = settingsService
-          .describe({ redactSecrets: true })
-          .find(candidate => candidate.ns === SIDEBARQA_SETTINGS_NS)
-        return descriptor === undefined
-          ? { value: undefined, revision: undefined }
-          : { value: descriptor.value, revision: descriptor.revision }
+    const seam = openSettingsSeam<SidebarqaConfig>(
+      sctx.settings as unknown,
+      SIDEBARQA_SETTINGS_NS,
+      SidebarqaPrefsSchema,
+    )
+    if (!seam.ok) {
+      // `service-missing` cannot happen here (cordis only runs this callback
+      // once `settings` is provided) — it stays silent. `no-register` is the
+      // EXPECTED shape on a 0.1.7+ host, so it is one informational line, not a
+      // failure. Only a genuinely unexpected refusal gets a warning.
+      if (seam.reason === 'no-register') {
+        console.info(
+          '[dsh-sidebar-qa] this host offers no settings namespace registration (dsh-settings ≥ 0.1.7 derives editable fields from the plugin Config instead); the sidebarqa namespace is skipped and defaults are used',
+        )
+      } else if (seam.reason === 'register-failed') {
+        console.warn('[dsh-sidebar-qa] settings registration failed; using defaults:', seam.error)
       }
-      configFace = {
-        get: viewOf,
-        update: async (patch, expectedRevision) => {
-          await settingsService.update(SIDEBARQA_SETTINGS_NS, patch, expectedRevision)
-          return viewOf()
-        },
-      }
-    } catch (error) {
-      console.warn('[dsh-sidebar-qa] settings registration failed; using defaults:', error)
+      return
     }
+    configScope = seam.scope
+    configFace = seam.face
   })
   const getConfig = (): SidebarqaConfig => {
     try {

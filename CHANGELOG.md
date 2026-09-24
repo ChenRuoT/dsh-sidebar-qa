@@ -2,6 +2,21 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.0.1] - 2026-09-24
+
+**修 [issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)：在 `@deepseek-ai/dsh@0.1.7-alpha.1+` 上启动不再打 `settings registration failed: TypeError: settingsService.register is not a function`。**
+
+### Fixed
+
+- **settings 命名空间改为按结构探测，不再假定 `register` 存在**（**host 半，需重启 `dsh web`**）：`@deepseek-ai/dsh-settings` 在 0.1.7 把服务从 `SettingsProvider`（有公开 `register(ns, schema, options)`）换成 `SettingsForms`——**服务同名、没有 `register`**（`0.1.7-alpha.1` / `0.1.7-alpha.2` 的 npm tarball 逐字节核对过，无兼容入口），可编辑字段改由**插件自报的 `Config` schema** 派生、`describe` / `update` 按 **profile 条目 id** 寻址。此前 `src/index.ts` 直接调用 `settingsService.register(...)`，在没有该方法的宿主上**每次启动**抛 `TypeError`；外层 `catch` 让它只是降级（回落 `SIDEBARQA_DEFAULTS`、追问链路照常）而不是崩溃，但日志里永远多一行失败。
+  - 新增 `src/settings-face.ts`：`openSettingsSeam(service, ns, schema)` 用 `typeof …register === 'function'` 判定（**结构校验，不是版本比较**——与 client 半对 `sidebarRightTabs` / `slots` 的规则一致），返回 `{ ok: true, scope, face }` 或带原因的拒绝 `{ ok: false, reason: 'service-missing' | 'no-register' | 'register-failed', error? }`；**探测本身绝不抛**（它跑在 cordis `inject` 回调里，抛出即启动期故障）。`describe` / `update` 也各自探测，并补 `Array.isArray` 校验。
+  - 宿主没有 `register` 时只记**一条 `console.info`**（说明该宿主把可编辑字段交给插件 `Config` schema、本插件因此走默认值），不再是 warn + 堆栈；只有 `register` 真的被拒（命名空间重复等）才 warn。
+  - `config.update` 的 503 文案改为如实描述：原来的「the settings service is not mounted in this deployment」在 0.1.7 上是误导——服务在，缺的是 `register`。
+  - `src/context-types.ts` 的 `SidebarqaSettingsService` 镜像补上出处与「0.1.7+ 没有 `register`」的说明，避免下一个人再按版本假设这个成员存在。
+  - **0.1.7+ 上设置页仍不可写**（回落默认值）：保留设置卡需要按新模型重做（导出带 volatile 的 `Config` 并按条目 id 寻址），属于单独一条，不在本次范围。
+  - 回归用例 `tests/settings-face.spec.ts`（12 例）：0.1.7 形状必须被判成 `no-register` 且**不触碰** `describe` / `update`；provider 形状必须转发 ns/schema、读回 value + revision、把 `expectedRevision` 透传下去；`describe` 返回非数组 / 无该命名空间 / 缺 `update` 都必须降级而不是抛；另有一条接线守卫——`src/index.ts` 必须走 `openSettingsSeam`，且**不得**再出现 `settingsService.register`。
+- `engines.dsh` 已是 `>=0.1.2-alpha.1`（[issue #14](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/14) 的建议早已落地），#19 里「建议顺带补 `engines.dsh`」那句属过时信息。
+
 ## [1.0.0] - 2026-09-20
 
 **首个 1.x：只注册进 DSH 自带右侧栏，零额外依赖。** 走 major 的原因只有一条——**移除了 `dsh-better-sidebar` 后端**（`### Removed` 一节）：升级后不再需要任何 peer 侧边栏基座，装 `dsh-sidebar-qa` 一个包即可；此前依赖 better-sidebar 的部署请一并卸掉它。

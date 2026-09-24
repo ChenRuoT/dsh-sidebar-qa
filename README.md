@@ -63,6 +63,7 @@
 - **侧边栏 tab 需要 DSH ≥ `0.1.5-alpha.1`**：原生右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`）从该版本起提供。
 - 探测是**运行期结构探测**（服务在不在），不是版本号比对：`sidebarRightTabs` / `sidebarRight` / `slots` 三件套齐备才注册。
 - `engines.dsh` 仍声明 `>=0.1.2-alpha.1`（浏览器侧 RPC 走 `ctx.remote.session` 的下限），但 **DSH 完全不校验 `engines`**，所以它只是声明、不是闸门。
+- **设置项的持久化需要 `dsh-settings` 仍提供命名空间注册**（≤ `0.1.5-rc.x`，即当前 npm `latest`）：`0.1.7-alpha.1` 起该 API 被移除（`SettingsForms` 改为从插件自报的 `Config` schema 派生可编辑字段，并按 profile 条目 id 寻址 `describe` / `update`），插件会**结构探测**到这一点并**安静降级**——追问功能照常，配置一律取默认值，日志里只有一条 `console.info`。0.1.7+ 上“设置卡继续可编辑”需要按新模型重做，是后续单独一条（[issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)）。
 
 ## 安装
 
@@ -92,6 +93,8 @@ dsh plugin --profile web add <本仓库路径>
 配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或 DSH 设置页）。
 
 > ℹ️ **配置面板就在 DSH 设置页里**：「功能配置」面板（`src/client/ConfigPanel.tsx`）注册成一个 `settings.section`，导航路径是 **设置 → 左侧导航「追问」**（排位在 DSH 自带各页之后）。它编辑的仍是 host 的 `sidebarqa` 命名空间（经本插件自己的 `/sidebarqa/api/config.update`，带 revision 乐观锁），所以 **`settings.yaml` 的 `sidebarqa` 命名空间依然有效，两条路写的是同一份配置**。
+>
+> ⚠️ 宿主升级到 `dsh-settings` ≥ 0.1.7（DSH `0.1.7-alpha.1+`）后该命名空间不再存在：面板会显示**默认值**，写入会被明确拒绝（消息见下），追问全部功能不受影响。
 
 下表的键都可以直接写进 `settings.yaml` 的 `sidebarqa` 命名空间。面板里则可以逐项编辑这些字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试），回答/摘要的模型渠道与模型为下拉框（选项来自运行时已配置的渠道）；直接手写 YAML 也完全等效。
 

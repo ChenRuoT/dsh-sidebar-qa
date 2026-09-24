@@ -63,6 +63,7 @@
 - **The sidebar tabs need DSH ≥ `0.1.5-alpha.1`**: DSH's own right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) ships from that release. On earlier DSH the plugin is not inactive — the popover and “Add to chat” work exactly as before.
 - The check is a **runtime structural probe** (are the services there), not a version comparison: the tabs register only once `sidebarRightTabs` / `sidebarRight` / `slots` are all present.
 - `engines.dsh` still declares `>=0.1.2-alpha.1` (the floor for the browser-side RPC over `ctx.remote.session`), but **DSH does not validate `engines` at all** — it is a declaration, not a gate.
+- **Persisting settings needs `dsh-settings` to still offer namespace registration** (≤ `0.1.5-rc.x`, i.e. today's npm `latest`): from `0.1.7-alpha.1` that API is gone (`SettingsForms` derives editable fields from the plugin's own `Config` schema and addresses `describe` / `update` by profile entry id). The plugin **probes for this structurally** and degrades quietly — follow-ups work exactly as before, every setting falls back to its default, and the only log line is one `console.info`. Keeping the settings card editable on 0.1.7+ needs the new model and is tracked separately ([issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)).
 
 ## Install
 
