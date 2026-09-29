@@ -11,10 +11,11 @@
  * exactly the "panel went white and cannot be recovered" report.
  *
  * `tsc` cannot catch the drift on its own: it checks our call against whatever
- * stub is installed, so a devDependency that reaches back to a pre-rename version
- * (the `^0.1.0-rc.8` range can NEVER match a newer prerelease — semver only
- * admits a prerelease when a comparator carries the same major.minor.patch)
- * silently re-opens the hole. This suite pins the stub itself.
+ * stub is installed, so a stub that drifts back to a pre-rename generation
+ * silently re-opens the hole. The devDependency pin guards that (`tests/
+ * dsh-compat.spec.ts` enforces an exact pin, and pure lower bounds on the peers
+ * keep a version range from freezing the stub) — this suite pins the stub's
+ * SHAPE on top of it.
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'

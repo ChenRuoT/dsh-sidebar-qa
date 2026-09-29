@@ -2,6 +2,29 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.1.0] - 2026-09-29
+
+**修复 DSH `0.2.0` 上插件整个不加载：peer 区间写成了闸门会拒的「天花板形」，而 DSH 0.2.0 新增了一道启动期 peer 兼容闸。**
+
+### Fixed
+
+- **peer 区间从「^锚点」改成「纯下限」，插件重新能在 0.2.x 上加载**（**host 半改动，需重启 `dsh web`**）：DSH `0.2.0` 的 boot 在装载每个 profile bundle 前先跑 `packages/boot/app-boot/src/plugin-compatibility.ts` 的 `evaluatePluginCompatibility`——对 manifest 里**每一个** `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer 区间做 `semver.satisfies(runtimeVersion, range, { includePrerelease: true })`。只要有一个不满足，`loadProfileDirectory` 就把这个 bundle 的**整个 patch 层**丢掉（`skippedBundles`），只在 stderr 打一行 `dsh: skipping profile bundle "…"`——**host 半不加载、client bundle 不组装，插件像没装一样**。不是降级，是消失。
+  - 本插件的 peer 写的是 `@deepseek-ai/dsh-client-locale: ^0.1.0-rc.8`。**带预发布的 caret 不是下限而是「下限 + 天花板」**：`validRange('^0.1.0-rc.8')` = `>=0.1.0-rc.8 <0.2.0-0`。运行时的 `0.2.0-rc.1` 已经越过 `<0.2.0-0`，于是**每个 0.2.x 宿主上插件全层被跳过**——这正是「升级 0.2.0 后侧边栏追问没了」的样子。
+  - 现改为纯下限：`@deepseek-ai/dsh-client-locale: >=0.1.0-rc.8`、`@deepseek-ai/dsh-client-ui-primitives: >=0.1.7-alpha.1`。这条修法本身就是**新版本生成上线时插件再次消失**的通解：不带天花板，任何将来的 `0.x.y` / `0.x.y-pre` 运行时都满足；带天花板的区间（含 `^` 落在 0.1.0 预发布上、以及任何 `>=a <b` 组合）都只是在预测下一个版本号。
+  - 豁免通道（各 profile 一个 `compatibility.json`，`dsh plugin allow-version`）**没有采用**：那是给「明知不兼容仍要跑」的逃生门，改手改用户的 profile，不是第三方插件的修法。
+  - 附带把 `engines.dsh` 从 `>=0.1.2-alpha.1` 抬到 `>=0.1.7-alpha.1`（如实反映 1.0.1 起就依赖的 `SettingsForms` 世代与 1.0.2 的图标改名世代；DSH 不校验 `engines`，它只是声明）。
+  - `dsh.plugin.json` 的 `engines.dsh` 同步更新、`version` 对齐 `package.json`（此前它一直停留在 `1.0.0`；随本次 `pnpm version minor` 一起到 `1.1.0`）。
+
+### Changed
+
+- **类型桩钉到 `0.2.0-rc.1` 世代**（dev-only）：`@deepseek-ai/dsh-client-locale` 与 `@deepseek-ai/dsh-client-ui-primitives` 两个 devDependency 均**精确钉 `0.2.0-rc.1`**，`pnpm-workspace.yaml` 的 `peerDependencyRules.allowedVersions` 随之更新（两个桩 peer 的是 `@deepseek-ai/cordis@~4.0.4`，本包从不链接）。**client 半源码零改动**（随包发布的 `lib/client.js` / `lib/client-registry.js` 重新构建过一次，内容与 1.0.2 等价）。升级后 `tsc --noEmit` **零报错通过**——client 半对 0.2.0 API 世代的全部调用（`MarkdownText.labels` / `Tooltip` / `Menu` / `iconOf` 的 7 个 glyph / `conversation.input.for(actx).setDraft` / `locale.register(ns, locale, dict)` / `sidebarRightTabs` 三阶段注册）都在新桩上重新校验过一遍。
+- **`pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 改为作用域通配符**（dev-only，装机 prerequisite）：pnpm ≥ 11 默认开启 24h `minimumReleaseAge` 供应链接入闸，而 `@deepseek-ai/*` 的 rc 发布总是「当天发、当天被本类插件钉上」，`name@version` 形式的旧条目在 pnpm 11 上**已不再生效**，`pnpm install` 会以 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` 直接失败。改为 `'@deepseek-ai/*'` 一条（范围仅限 devDependency 的类型桩：不随包发布、运行期不链接、且全部精确钉），旧的 rc.6 条目保留作溯源注释。
+- **0.2.0 兼容性逐点核对结论（无源码改动）**：右侧栏类型注册表（`SidebarRightGuideEntry` 的 `id` + `order` + 可选 `icon`、`title: (address) => string`）、`sidebar.right.pane.tab` / `.title` 两个 keyed 席位、`session-controller` 的远端动词（`rename` / `fork` / `prompt` / `page` / `follow` / `create` / `selectModel` / `modelCatalog`）、`session-query` 的 `SessionSurfaceSnapshot`、`llm` 的 `GenerateOptions`、`webserver` 的 `WebRoute`、`WebRuntimeValues.trustedHosts`（信任围栏读的那个服务面）、`PLATFORM_MODULES` 九个平台种子词、`SettingsForms`（无 `register` → 设置接缝安静降级，与 1.0.1 的行为一致）——`v0.1.7-rc.2 → v0.2.0-rc.1` 两档之间这些文件的源码 diff 为空，仅版本号变化。**因此本次没有源码层适配工作，唯一的根因就是 peer 区间。**
+- **新回归 `tests/dsh-compat.spec.ts`（7 例）**：在 node 里逐行复刻 0.2.0 的闸门——（1）插件声明的每一档 DSH 运行时（`0.1.7-alpha.1` / `0.1.7-rc.2` / `0.2.0-rc.1` / `0.2.0` / `0.3.0-rc.1`）都必须通过；（2）「旧区间 `^0.1.0-rc.8` 在 `0.2.0-rc.1` 上必须被判不兼容」这条**检测器**反向钉住本套测试能抓到这个故障；（3）每个 gated peer 区间**不得含 `<` 天花板**（`semver.validRange` 归一化后不含 `<`）；（4）装了 DSH checkout 时直接读它 `app-boot` 的版本再跑一遍闸门；（5）每个 `@deepseek-ai/*` devDependency 必须是**精确钉**（`semver.valid`）且与 `node_modules` 里装好的副本逐字一致。
+- `tests/primitives.spec.ts` 的桩世代判定改为**从装好的桩自身读**（`Regular`/`Medium` 后缀 = 改名后世代，否则为改名前），不再假定「桩一定在旧世代」；两个世代的解析链仍各自全量覆盖。
+- 新回归在 node 里复刻 DSH 闸门需要同一个 semver 判定器，故 devDependency 增加 `semver` + `@types/semver`（**仅 tests 使用**，不进 client bundle、纯度门不受影响）。
+- `tests/markdown-labels.spec.ts` 的说明改为指向新的钉子（精确钉 + 纯下限 peer），语义不变。
+
 ## [1.0.2] - 2026-09-24
 
 **修「打开侧面板就报 `面板渲染出错：Minified React error #130 … but got: undefined`」：宿主在 `0.1.7-alpha.1` 重命名了整套图标，而本插件按名 import 的那些 glyph 在运行期就是 `undefined`。**

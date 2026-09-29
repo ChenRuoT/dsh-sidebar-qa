@@ -1,15 +1,25 @@
 packages:
   - .
 
-# The pinned ui-primitives type stub (see package.json devDependencies) peers on
-# `@deepseek-ai/cordis@^4.0.2`, a copy this package never links: the web shell
-# provides cordis through the frozen platform module table, so the older resolved
-# row is declared ALLOWED instead of being pulled into the dependency graph.
+# The pinned ui-primitives / client-locale type stubs (see package.json
+# devDependencies) peer on `@deepseek-ai/cordis@~4.0.4`, a copy this package
+# never links: the web shell provides cordis through the frozen platform module
+# table, so the resolved row (the same 4.0.4 the DSH 0.2.0 checkout vendors) is
+# declared ALLOWED instead of being pulled into the dependency graph.
 peerDependencyRules:
   allowedVersions:
-    '@deepseek-ai/cordis': '4.0.1'
+    '@deepseek-ai/cordis': '4.0.4'
 
+# `@deepseek-ai/*` type stubs (see package.json devDependencies) are published and
+# consumed within hours of each release, which pnpm's default 24h
+# `minimumReleaseAge` gate would always reject. The exclusion below is the
+# declared escape hatch for this dev-only dependency scope: nothing here is
+# bundled (`purityGatePlugin`) or linked at runtime (the web shell serves its own
+# modules), and every pin is exact, so the scope glob is intentionally narrow.
 minimumReleaseAgeExclude:
+  - '@deepseek-ai/*'
+  # Historical entries from the 0.1.0-rc.6 era (`name@version` form, no longer
+  # honored by pnpm ≥ 11); kept for provenance, superseded by the glob above.
   - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.6'
   - '@deepseek-ai/dsh-agent-presets@0.1.0-rc.6'
   - '@deepseek-ai/dsh-agent@0.1.0-rc.6'
@@ -69,3 +79,5 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-user-questions@0.1.0-rc.6'
   - '@deepseek-ai/dsh-workspace@0.1.0-rc.6'
   - '@deepseek-ai/dsh-client-ui-primitives@0.1.0-rc.8'
+  - '@deepseek-ai/dsh-client-locale@0.2.0-rc.1'
+  - '@deepseek-ai/dsh-client-ui-primitives@0.2.0-rc.1'

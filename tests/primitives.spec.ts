@@ -14,7 +14,9 @@
  * chip its title.
  *
  * This suite pins the resolution rule and, more importantly, pins the wiring:
- * nothing outside `primitives.ts` may import an icon by name again.
+ * nothing outside `primitives.ts` may import an icon by name again, and the
+ * stub's own naming generation is read (not assumed) so the suite can tell
+ * which world it is looking at.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -147,18 +149,50 @@ function iconCallSites(): IconCallSite[] {
 }
 
 /**
- * The glyph names the INSTALLED type stub declares — the pre-rename generation,
- * which is exactly why it cannot be trusted as the runtime's contract.
+ * The glyph names the INSTALLED type stub declares.
+ *
+ * Which generation those names are in is read off the stub itself, not
+ * assumed: the pin moved to the post-rename generation when DSH 0.2.0 landed
+ * (`tests/dsh-compat.spec.ts` pins the devDependency), and a stub that drifts
+ * back to the pre-rename world must fail loudly here rather than silently
+ * widen what the suite believes.
  */
 function stubIconNames(): string[] {
   const source = readFileSync(STUB_ICON_TYPES, 'utf8')
   return [...source.matchAll(/export declare const (Icon[A-Za-z0-9]+):/g)].map(match => match[1]!)
 }
 
-/** The pre-0.1.7 shape: each glyph named after the size it was drawn at. */
-const LEGACY_NAMES = stubIconNames()
-/** The 0.1.7+ shape, derived from that list by the documented rename. */
-const MODERN_NAMES = LEGACY_NAMES.map(name => name.replace(/(12|14|16|20)$/, 'Regular'))
+/** The two host generations: named after the drawn size, then after the stroke weight. */
+type IconGeneration = 'pre-rename' | 'post-rename'
+
+/** Which generation the installed stub describes, read off its own names. */
+function stubGeneration(): IconGeneration {
+  const names = stubIconNames()
+  expect(names.length, 'the stub declares no icons at all').toBeGreaterThan(0)
+  // The 0.1.7 rename produced exactly two suffixes; the pre-rename set used
+  // drawn sizes, which the MODERN_SUFFIX Names never end in.
+  return names.every(name => /(Regular|Medium)$/.test(name)) ? 'post-rename' : 'pre-rename'
+}
+
+/** The stub's generation, read once per run (the module table is frozen). */
+const STUB_GENERATION = stubGeneration()
+/** Every name the stub declares — the set the `Regular → Medium → <size>` chain reads. */
+const STUB_NAMES = stubIconNames()
+
+/**
+ * One simulated host module per generation, for the resolution-chain tests.
+ * @param generation - which naming convention the fake host uses.
+ * @returns a namespace whose icons all resolve through {@link iconIn}.
+ */
+function hostModuleOf(generation: IconGeneration): PrimitiveModule {
+  return moduleOf(Object.fromEntries(iconCallSites().flatMap(site =>
+    generation === 'pre-rename'
+      ? [[`${site.base}${site.size}`, glyph(`${site.base}${site.size}`)]]
+      // Medium stands in in every pair so the fallback has a second rung to find.
+      : [[`${site.base}Regular`, glyph(`${site.base}Regular`)],
+        [`${site.base}Medium`, glyph(`${site.base}Medium`)]],
+  )))
+}
 
 /**
  * The DSH checkout this plugin is developed against, when it is on this machine.
@@ -179,22 +213,31 @@ describe('the glyphs this plugin draws', () => {
     expect(iconCallSites().length).toBeGreaterThanOrEqual(7)
   })
 
-  it('exist under BOTH naming conventions of the installed type stub', () => {
-    const legacy = new Set(LEGACY_NAMES)
-    const modern = new Set(MODERN_NAMES)
+  it('names every drawn glyph in the generation the installed stub describes', () => {
+    const stub = new Set(STUB_NAMES)
     for (const site of iconCallSites()) {
-      const legacyName = `${site.base}${site.size}`
-      expect(legacy.has(legacyName), `${site.file} calls iconOf('${site.base}', ${site.size}) but the stub declares no ${legacyName}`).toBe(true)
-      expect(modern.has(`${site.base}Regular`), `${site.file} calls iconOf('${site.base}', ${site.size}) but the renamed set has no ${site.base}Regular`).toBe(true)
+      if (STUB_GENERATION === 'pre-rename') {
+        // A stub frozen on the pre-rename world declares the size-suffixed name
+        // AND, since it was published after the rename was announced, the weight
+        // suffix the host actually ships.
+        expect(stub.has(`${site.base}${site.size}`), `${site.file} calls iconOf('${site.base}', ${site.size}) but the stub declares no ${site.base}${site.size}`).toBe(true)
+        expect(stub.has(`${site.base}Regular`), `${site.file} calls iconOf('${site.base}', ${site.size}) but the renamed set has no ${site.base}Regular`).toBe(true)
+      } else {
+        // The 0.2.0 stub is on the renamed side: the weight-suffixed names are
+        // the contract, and the size-suffixed names are gone — which is exactly
+        // why the resolution below still has to find them by derivation.
+        expect(stub.has(`${site.base}Regular`), `${site.file} calls iconOf('${site.base}', ${site.size}) but the stub has no ${site.base}Regular`).toBe(true)
+        expect(stub.has(`${site.base}${site.size}`), `${site.file} calls iconOf('${site.base}', ${site.size}) and the stub still declares the pre-rename ${site.base}${site.size}; the icon set was renamed in 0.1.7 with no aliases`).toBe(false)
+      }
     }
   })
 
-  it('resolve through the rule in both simulated host generations', () => {
-    const legacyModule = moduleOf(Object.fromEntries(LEGACY_NAMES.map(name => [name, glyph(name)])))
-    const modernModule = moduleOf(Object.fromEntries(MODERN_NAMES.map(name => [name, glyph(name)])))
+  it('resolve through the rule in BOTH host generations, whichever way the stub points', () => {
+    const preRename = hostModuleOf('pre-rename')
+    const postRename = hostModuleOf('post-rename')
     for (const site of iconCallSites()) {
-      expect(iconIn(legacyModule, site.base, Number(site.size) as 12 | 14 | 16 | 20), site.file).toBeDefined()
-      expect(iconIn(modernModule, site.base, Number(site.size) as 12 | 14 | 16 | 20), site.file).toBeDefined()
+      expect(iconIn(preRename, site.base, Number(site.size) as 12 | 14 | 16 | 20), site.file).toBeDefined()
+      expect(iconIn(postRename, site.base, Number(site.size) as 12 | 14 | 16 | 20), site.file).toBeDefined()
     }
   })
 

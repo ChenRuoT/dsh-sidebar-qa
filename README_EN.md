@@ -33,6 +33,10 @@
 
 ## 📦 Changelog
 
+### 1.1.0 - 2026-09-29
+
+**Fixes "the plugin does not load at all on DSH `0.2.0`"**: DSH 0.2.0 added a **boot-time peer compatibility gate** — before mounting any profile bundle, every `@deepseek-ai/dsh*` peer range in its manifest must satisfy `semver.satisfies(runtime version, range, { includePrerelease: true })`; one miss and the bundle's **whole patch layer is skipped** (one stderr line `dsh: skipping profile bundle …`, and the plugin looks uninstalled). This plugin's peer read `^0.1.0-rc.8`, which semver expands to "floor **plus** ceiling" (`>=0.1.0-rc.8 <0.2.0-0`) — and runtime `0.2.0-rc.1` already sits past that ceiling, so every 0.2.x host skipped the layer. The ranges are now **pure lower bounds** (`>=0.1.0-rc.8` / `>=0.1.7-alpha.1`), so the next DSH release cannot switch the plugin off by version number alone. The type stubs are pinned exactly to `0.2.0-rc.1` and everything re-verified against them (**no client-half source change**). New regression: `tests/dsh-compat.spec.ts` mirrors the gate in node (including a reverse detector that the old range must fail). **Host half — restart `dsh web` after upgrading.**
+
 ### 1.0.2 - 2026-09-24
 
 **Fixes "opening the side panel reports `The panel failed to render: Minified React error #130 … but got: undefined`"**: DSH `0.1.7-alpha.1` renamed the whole host icon set from a size suffix to a stroke-weight suffix (`IconQuestionOutline14` → `IconQuestionOutlineRegular` / `…Medium`) with no aliases, so the glyphs this plugin imported by name were `undefined` at runtime and the panel's composer row threw React error #130 on its first render (the plugin's own boundary then contained it into the retryable strip you saw). Icons are now **resolved by name** (`Regular → Medium → legacy size-suffixed`), and a glyph the host does not have renders as nothing instead of crashing; typed API surfaces (`MarkdownText` / `Tooltip` / `Menu`) are still imported by name. **Client half only — a hard browser refresh is enough.**
@@ -61,12 +65,14 @@
 
 | Host DSH | Sidebar tabs | Selection popover / Add to chat |
 |---|---|---|
+| ≥ `0.2.0` | ✅ registered into DSH's own right sidebar | ✅ |
 | ≥ `0.1.5-alpha.1` (recommended) | ✅ registered into DSH's own right sidebar | ✅ |
 | `0.1.2-alpha.1` ~ `0.1.4.x` | ❌ not registered (one `console.warn`) | ✅ |
 
 - **The sidebar tabs need DSH ≥ `0.1.5-alpha.1`**: DSH's own right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) ships from that release. On earlier DSH the plugin is not inactive — the popover and “Add to chat” work exactly as before.
 - The check is a **runtime structural probe** (are the services there), not a version comparison: the tabs register only once `sidebarRightTabs` / `sidebarRight` / `slots` are all present.
-- `engines.dsh` still declares `>=0.1.2-alpha.1` (the floor for the browser-side RPC over `ctx.remote.session`), but **DSH does not validate `engines` at all** — it is a declaration, not a gate.
+- `engines.dsh` declares `>=0.1.7-alpha.1` (truthfully mirroring the settings-seam and icon-rename generations), but **DSH does not validate `engines` at all** — it is a declaration, not a gate.
+- **The real gate is `peerDependencies` (DSH ≥ 0.2.0)**: the boot runs `semver.satisfies(runtime, range, { includePrerelease: true })` against every `@deepseek-ai/dsh*` peer range, and one miss **skips the bundle's whole patch layer** (the plugin does not load; one stderr line remains). That is why every gated peer here is a **pure lower bound** (no `<` ceiling) — a caret over a prerelease like `^0.1.0-rc.8` expands to `>=0.1.0-rc.8 <0.2.0-0` and blocked the entire plugin on 0.2.0 (fixed in 1.1.0). Regression: `tests/dsh-compat.spec.ts`.
 - **Persisting settings needs `dsh-settings` to still offer namespace registration** (≤ `0.1.5-rc.x`, i.e. today's npm `latest`): from `0.1.7-alpha.1` that API is gone (`SettingsForms` derives editable fields from the plugin's own `Config` schema and addresses `describe` / `update` by profile entry id). The plugin **probes for this structurally** and degrades quietly — follow-ups work exactly as before, every setting falls back to its default, and the only log line is one `console.info`. Keeping the settings card editable on 0.1.7+ needs the new model and is tracked separately ([issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)).
 
 ## Install

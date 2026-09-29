@@ -33,6 +33,10 @@
 
 ## 📦 更新记录
 
+### 1.1.0 - 2026-09-29
+
+**修 DSH `0.2.0` 上插件整个不加载**：DSH 0.2.0 新增了一道**启动期 peer 兼容闸**——每个 profile bundle 装载前，它 manifest 里每一个 `@deepseek-ai/dsh*` peer 区间都要满足 `semver.satisfies(运行时版本, 区间, { includePrerelease: true })`，有一个不满足，这个 bundle 的**整个 patch 层被跳过**（stderr 一行 `dsh: skipping profile bundle …`，插件像没装）。本插件 peer 写的 `^0.1.0-rc.8` 在 semver 里是「下限 + 天花板」（`>=0.1.0-rc.8 <0.2.0-0`），而运行时 `0.2.0-rc.1` 已越过那个天花板，于是每个 0.2.x 宿主上都整层被跳过。现改为**纯下限**（`>=0.1.0-rc.8` / `>=0.1.7-alpha.1`）：新版本上线时插件不会再因版本号变化而整体消失。类型桩同步精确钉到 `0.2.0-rc.1` 并重新全量校验（client 半源码**零改动**）。新回归 `tests/dsh-compat.spec.ts` 在 node 里复刻这道闸门（含「旧区间必须判不兼容」的反向检测器）。**host 半改动，升级后需重启 `dsh web`。**
+
 ### 1.0.2 - 2026-09-24
 
 **修「打开侧面板报 `面板渲染出错：Minified React error #130 … but got: undefined`」**：DSH `0.1.7-alpha.1` 把整套宿主图标从「尺寸后缀」改成「字重后缀」（`IconQuestionOutline14` → `IconQuestionOutlineRegular` / `…Medium`）且不留别名，插件按名 import 的 glyph 在运行期是 `undefined`，面板输入区一渲染就抛 React error #130（随后由本插件的错误边界就地隔离成那条可重试的说明条）。现在图标**按名解析**（`Regular → Medium → 旧尺寸名`），宿主没有的 glyph 渲染为空而不是崩溃；`MarkdownText` / `Tooltip` / `Menu` 这类有类型的 API 面仍按名 import。**仅 client 半改动，浏览器硬刷新即可生效。**
@@ -61,12 +65,14 @@
 
 | 宿主 DSH | 侧边栏 tab | 划选浮层 / 添加到对话 |
 |---|---|---|
+| ≥ `0.2.0` | ✅ 注册进 DSH 自带右侧栏 | ✅ |
 | ≥ `0.1.5-alpha.1`（推荐） | ✅ 注册进 DSH 自带右侧栏 | ✅ |
 | `0.1.2-alpha.1` ~ `0.1.4.x` | ❌ 不注册（记一条 `console.warn`） | ✅ |
 
 - **侧边栏 tab 需要 DSH ≥ `0.1.5-alpha.1`**：原生右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`）从该版本起提供。
 - 探测是**运行期结构探测**（服务在不在），不是版本号比对：`sidebarRightTabs` / `sidebarRight` / `slots` 三件套齐备才注册。
-- `engines.dsh` 仍声明 `>=0.1.2-alpha.1`（浏览器侧 RPC 走 `ctx.remote.session` 的下限），但 **DSH 完全不校验 `engines`**，所以它只是声明、不是闸门。
+- `engines.dsh` 声明 `>=0.1.7-alpha.1`（如实反映设置接缝与图标改名两个世代），但 **DSH 完全不校验 `engines`**，所以它只是声明、不是闸门。
+- **真正的闸门是 `peerDependencies`（DSH ≥ 0.2.0）**：boot 对每个 `@deepseek-ai/dsh*` peer 区间跑 `semver.satisfies(运行时, 区间, { includePrerelease: true })`，任一不满足就**跳过整个 bundle patch 层**（插件不加载，只在 stderr 留一行）。本插件因此把所有 gated peer 写成**纯下限**（无 `<` 天花板）——`^0.1.0-rc.8` 这种带预发布的 caret 展开成 `>=0.1.0-rc.8 <0.2.0-0`，会在 0.2.0 上把插件整层挡掉（1.1.0 修的正是它）。回归：`tests/dsh-compat.spec.ts`。
 - **设置项的持久化需要 `dsh-settings` 仍提供命名空间注册**（≤ `0.1.5-rc.x`，即当前 npm `latest`）：`0.1.7-alpha.1` 起该 API 被移除（`SettingsForms` 改为从插件自报的 `Config` schema 派生可编辑字段，并按 profile 条目 id 寻址 `describe` / `update`），插件会**结构探测**到这一点并**安静降级**——追问功能照常，配置一律取默认值，日志里只有一条 `console.info`。0.1.7+ 上“设置卡继续可编辑”需要按新模型重做，是后续单独一条（[issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)）。
 
 ## 安装

@@ -24,7 +24,7 @@
   },
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.1.2-alpha.1"
+    "dsh": ">=0.1.7-alpha.1"
   },
   "dsh": {
     "bundle": {
@@ -60,8 +60,8 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.2-alpha.2",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-alpha.1",
     "cordis": "^4.0.0-rc.8",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -75,15 +75,17 @@
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.1",
     "@types/node": "^24.0.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.1",
+    "@types/semver": "^7.8.0",
     "cordis": "^4.0.0-rc.8",
     "lightningcss": "^1.32.0",
     "react": "^18.2.0",
     "react-dom": "18.2.0",
+    "semver": "^7.7.0",
     "tsdown": "^0.22.2",
     "typescript": "^5.6.0",
     "vitest": "^4.1.8"
