@@ -27,6 +27,7 @@ import {
   SidebarqaPrefsSchema,
   type SidebarqaConfig,
   type SidebarqaHistoryStrategy,
+  type SidebarqaLiveConfig,
 } from './config.ts'
 import {
   assembleText,
@@ -40,7 +41,13 @@ import {
   RECENT_SEGMENT_MAX,
   splitRecent,
 } from './summarize.ts'
-import { openSettingsSeam, type SidebarqaConfigFace } from './settings-face.ts'
+import { liveConfigOf, liveConfigReader, unwrapVolatile } from './live-config.ts'
+import {
+  openSettingsSeam,
+  settingsRefusalMessage,
+  type SidebarqaConfigFace,
+  type SidebarqaSettingsSeamReason,
+} from './settings-face.ts'
 import { isTrustedApiRequest } from './trust-fence.ts'
 import { readJsonBody, requireString, SidebarqaError, writeError, writeJson, writeOk } from './wire.ts'
 import {
@@ -75,6 +82,18 @@ export {
   textOfEvent,
 } from './summarize.ts'
 export { TITLE_SYSTEM, boundTitleInput, buildTitleInput, normalizeTitle, titleSystem, truncateTitleUtf8 } from './title.ts'
+
+/**
+ * The plugin's OWN cordis config schema, i.e. every user-facing knob
+ * ({@link SidebarqaPrefsSchema}, whose fields are all `volatile`).
+ *
+ * DSH ≥ `0.1.7-alpha.1` derives the editable form from this export and stores
+ * the values in the plugin's profile row; the runtime then hands `apply` one
+ * live ref per field. Exported under the name cordis reads (`Config`) — the
+ * same object doubles as the legacy `sidebarqa` namespace schema on hosts that
+ * still accept runtime namespace registration (`src/settings-face.ts`).
+ */
+export const Config = SidebarqaPrefsSchema
 
 /** Plugin identity for cordis.yml rows. */
 export const name = 'dsh-sidebar-qa'
@@ -165,12 +184,20 @@ function trustedHostsOf(ctx: Context): string[] {
   return []
 }
 
-/** Build the API method table bound to the plugin context and its cache. */
+/**
+ * Build the API method table bound to the plugin context and its cache.
+ * @param ctx - the host plugin context.
+ * @param getConfig - the live config reader (see `apply`).
+ * @param cache - the per-session summary cache.
+ * @param getConfigFace - the opened settings face, when the host offers one.
+ * @param getRefusal - why it does not, when that is known.
+ */
 function buildApi(
   ctx: Context,
   getConfig: () => SidebarqaConfig,
   cache: Map<string, CacheEntry>,
   getConfigFace: () => SidebarqaConfigFace | undefined,
+  getRefusal: () => SidebarqaSettingsSeamReason | undefined,
 ): Record<string, ApiMethod> {
   return {
     config: (): SidebarqaConfig => getConfig(),
@@ -188,15 +215,19 @@ function buildApi(
       return { providers: await Promise.all(providers) }
     },
     'config.get': (): { value?: unknown; revision?: number } => {
-      const face = getConfigFace()
-      return face?.get() ?? { value: getConfig(), revision: undefined }
+      // The face's view is the host's RESOLVED value plus the revision a write
+      // must echo; when the face carries no value (or there is no face at all)
+      // the live config still answers, so a read-only host shows real values
+      // rather than a permanently loading panel.
+      const view = getConfigFace()?.get()
+      return { value: view?.value ?? getConfig(), revision: view?.revision }
     },
     'config.update': async (payload): Promise<{ value?: unknown; revision?: number }> => {
       const face = getConfigFace()
       if (face === undefined) {
         throw new SidebarqaError(
           'settings-rejected',
-          'this host exposes no sidebarqa settings namespace (the settings service is absent, or it offers no namespace registration)',
+          settingsRefusalMessage(getRefusal() ?? 'no-form'),
           503,
         )
       }
@@ -353,10 +384,78 @@ function buildApi(
 }
 
 /**
- * Plugin body: mount the fenced route and the optional settings namespace.
- * @param ctx - host plugin context (webServer, sessionQuery, llm, loader).
+ * Read one legacy settings namespace as a plain config.
+ *
+ * `unwrapVolatile` is not decoration: the schema handed to `register` is the
+ * volatile one, and a provider that resolves it itself would hand back refs —
+ * `writeJson` would serialize those as `{}` and the panel would come up empty.
+ * Defaults fill anything the namespace does not carry.
+ * @param scope - the registered namespace scope.
+ * @returns a reader that always answers a full config object.
  */
-export function apply(ctx: Context): void {
+function scopeReader(scope: SidebarqaSettingsScope<SidebarqaConfig>): () => SidebarqaConfig {
+  return () => {
+    const value = unwrapVolatile(scope.get())
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return SIDEBARQA_DEFAULTS
+    return { ...SIDEBARQA_DEFAULTS, ...(value as Partial<SidebarqaConfig>) }
+  }
+}
+
+/**
+ * This plugin's own profile row id — the key DSH ≥ `0.1.7-alpha.1` addresses a
+ * configuration form by.
+ *
+ * `entry.options.id` (NOT `entry.id`, which is prefixed with the owning tree's
+ * path): the settings service looks its entry up as
+ * `configEditor.entries().find(row => row.options.id === ns)`
+ * (`packages/settings/settings/src/index.ts`). Read lazily and defensively —
+ * below a bare `plugin()` call there is no row at all, which is a refusal, not
+ * a crash.
+ * @param ctx - the plugin context (its fiber is the loader row's root fiber).
+ * @returns the row id, or `undefined` when this mount has no addressable row.
+ */
+function profileEntryIdOf(ctx: Context): string | undefined {
+  const id: unknown = ctx.fiber?.entry?.options?.id
+  return typeof id === 'string' && id !== '' ? id : undefined
+}
+
+/**
+ * Tell the host that this plugin renders its OWN settings card, so the
+ * auto-generated form for the entry stays out of the way.
+ *
+ * This plugin registers a whole page into `settings.section`
+ * (`src/client/settings-section.tsx`), with catalog-driven provider/model
+ * pickers and localized copy; the schema-derived form would be a second,
+ * poorer surface for the same values (the same reason DSH's own
+ * `ui-settings` calls this). The method exists only on 0.1.7+, so it is probed
+ * by structure, and the returned disposer is registered as an effect to die
+ * with the plugin.
+ * @param child - the settings-fiber context (owns the effect).
+ * @param owner - the plugin's own fiber (the policy is per plugin instance).
+ */
+function claimOwnSettingsCard(child: Context, owner: Context['fiber']): void {
+  const service = child.settings
+  const configure = typeof service?.configure === 'function' ? service.configure.bind(service) : undefined
+  if (configure === undefined) return
+  child.effect(() => {
+    try {
+      return configure({ auto: false }, owner)
+    } catch (error) {
+      // A host that refuses the policy simply keeps its auto-generated form.
+      console.warn('[dsh-sidebar-qa] could not claim the plugin settings card:', error)
+      return undefined
+    }
+  }, 'dsh-sidebar-qa: own settings card')
+}
+
+/**
+ * Plugin body: mount the fenced route and the configuration seam.
+ * @param ctx - host plugin context (webServer, sessionQuery, llm, loader).
+ * @param config - the LIVE plugin config: one volatile ref per field, updated
+ *   in place whenever a settings write commits (absent below a bare
+ *   `plugin()` call, where defaults apply).
+ */
+export function apply(ctx: Context, config?: SidebarqaLiveConfig): void {
   // A refusal, never a hang: the fence runs outside the route's try/catch, so
   // anything thrown in here would leave the response unwritten and the request
   // pending forever. Deny instead — the safe direction for a trust check.
@@ -369,52 +468,76 @@ export function apply(ctx: Context): void {
     }
   }
 
-  // ── User-editable configuration ───────────────────────────────────────────
-  // The `sidebarqa` namespace is OPTIONAL and the host may not offer one at all:
-  // `dsh-settings` ≥ 0.1.7 dropped namespace registration (its `SettingsForms`
-  // derives editable fields from the plugin's own `Config` schema, addressed by
-  // profile entry id — see `settings-face.ts`). So the seam is probed by
-  // STRUCTURE, never by version, and every refusal degrades: the summarize route
-  // still answers on SIDEBARQA_DEFAULTS. A refusal must never disable the plugin.
-  // The config face adds a revision-guarded update path so the webview config
-  // panel persists edits without silently overwriting a concurrent change
-  // (mirror of the settings seam's own guard).
-  let configScope: SidebarqaSettingsScope<SidebarqaConfig> | undefined
+  // ── User-editable configuration (issue #21) ────────────────────────────────
+  // The same 12 knobs are edited through the plugin's own `Config` schema now,
+  // which reaches this function as LIVE REFS: reading one is the current value,
+  // no reload, no remount. That is the read source whenever no host-side store
+  // overrides it (below).
+  const live = liveConfigOf(config)
+  const readLive = live === undefined ? undefined : liveConfigReader(live)
+  let readConfig: () => SidebarqaConfig = readLive ?? (() => SIDEBARQA_DEFAULTS)
   let configFace: SidebarqaConfigFace | undefined
+  // Why writes are refused, when they are: the API answers 503 with copy that
+  // matches the actual reason instead of the old one-size-fits-all message.
+  let settingsRefusal: SidebarqaSettingsSeamReason | undefined
+
+  // The seam is OPTIONAL and its SHAPE is not stable across hosts:
+  // `dsh-settings` ≤ 0.1.6 registers plugin-declared namespaces, ≥ 0.1.7 has no
+  // registration at all and derives editable fields from the plugin's own
+  // `Config` (addressed by profile entry id). So it is probed by STRUCTURE,
+  // never by version, and every refusal degrades: the summarize route still
+  // answers on the live config or on SIDEBARQA_DEFAULTS. A refusal must never
+  // disable the plugin. Both shapes end at the same revision-guarded face —
+  // only the addressed key differs — so the webview panel persists edits either
+  // way, without silently overwriting a concurrent change.
   ctx.inject(['settings'], (sctx) => {
     const seam = openSettingsSeam<SidebarqaConfig>(
       sctx.settings as unknown,
       SIDEBARQA_SETTINGS_NS,
       SidebarqaPrefsSchema,
+      profileEntryIdOf(ctx),
     )
     if (!seam.ok) {
-      // `service-missing` cannot happen here (cordis only runs this callback
-      // once `settings` is provided) — it stays silent. `no-register` is the
-      // EXPECTED shape on a 0.1.7+ host, so it is one informational line, not a
-      // failure. Only a genuinely unexpected refusal gets a warning.
-      if (seam.reason === 'no-register') {
-        console.info(
-          '[dsh-sidebar-qa] this host offers no settings namespace registration (dsh-settings ≥ 0.1.7 derives editable fields from the plugin Config instead); the sidebarqa namespace is skipped and defaults are used',
-        )
-      } else if (seam.reason === 'register-failed') {
+      settingsRefusal = seam.reason
+      if (seam.reason === 'register-failed') {
         console.warn('[dsh-sidebar-qa] settings registration failed; using defaults:', seam.error)
+      } else if (seam.reason !== 'service-missing') {
+        // `service-missing` cannot happen here (cordis only runs this callback
+        // once `settings` is provided) — it stays silent. The others are the
+        // EXPECTED shape on a host that offers neither seam, so they are one
+        // informational line, not a failure.
+        console.info(`[dsh-sidebar-qa] ${settingsRefusalMessage(seam.reason)}; the config panel is read-only here`)
       }
       return
     }
-    configScope = seam.scope
     configFace = seam.face
+    if (seam.kind === 'namespace') {
+      // Legacy host: its namespace store is both the write target and the
+      // authoritative read (the entry config is not wired to it), so reads
+      // follow the seam rather than the refs.
+      const scope = seam.scope
+      readConfig = scopeReader(scope)
+    } else {
+      claimOwnSettingsCard(sctx, ctx.fiber)
+      if (readLive === undefined) {
+        console.warn(
+          '[dsh-sidebar-qa] the runtime handed no volatile config; reads fall back to the schema defaults',
+        )
+      }
+    }
   })
   const getConfig = (): SidebarqaConfig => {
     try {
-      return configScope?.get() ?? SIDEBARQA_DEFAULTS
-    } catch {
+      return readConfig()
+    } catch (error) {
+      console.warn('[dsh-sidebar-qa] reading the sidebarqa config failed; using defaults:', error)
       return SIDEBARQA_DEFAULTS
     }
   }
 
   // ── JSON API ──────────────────────────────────────────────────────────────
   const cache = new Map<string, CacheEntry>()
-  const api = buildApi(ctx, getConfig, cache, () => configFace)
+  const api = buildApi(ctx, getConfig, cache, () => configFace, () => settingsRefusal)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/sidebarqa/api',

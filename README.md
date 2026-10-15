@@ -26,12 +26,20 @@
 - **🪆 嵌套追问**：在追问对话里再划选提问，生成子追问，层层嵌套
 - **🗂️ 追问记录**：按根（主）会话分层树展示；限定当前工作区；节点可折叠、显示最近访问时间；点击跳转后追问记录 tab 保持开启；已归档/已删除的追问**置灰标记状态**，可一键从记录中移除（连同整棵子树清理映射，不影响 DSH 侧会话）
 - **🏷️ 两段式命名**：划选首行占位命名 → 首次回答完成后基于「问题 + 回答」自动提炼 ≤15 字最终标题
-- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调——入口是 **DSH 设置页 → 左侧导航「追问」**（面板注册为 `settings.section`），也可以直接写 `settings.yaml` 的 `sidebarqa` 命名空间，两条路写的是同一份配置
+- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调——入口是 **DSH 设置页 → 左侧导航「追问」**（面板注册为 `settings.section`）；同一份配置也可以直接写进插件自己的 profile 行（`cordis.patch.yml` 里 `id: sidebar-qa` 的 `config:`），两条路写的是同一份配置
 - **🌏 中英双语**：界面文案与模型侧提示词跟随 DSH 语言设置实时切换（无需刷新，**包括已打开 tab 的标题**）；**回答语言跟随你提问/划选的内容**，不被界面语言绑架
 
 > 🔌 **只注册进 DSH 自带右侧栏**：DSH **0.1.5-alpha.1 及以上**自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`），本插件直接注册进它（`ctx.sidebarRightTabs` / `ctx.sidebarRight` 服务 + `sidebar.right.pane.tab` 与 `sidebar.right.pane.tab.title` 席位），**无任何额外依赖**。`dsh-better-sidebar` 兼容已在 1.0.0 彻底移除。更早的 DSH 上插件**仍然激活**：划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn`）。
 
 ## 📦 更新记录
+
+### 1.2.0 - 2026-10-15
+
+**修 [issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21)「设置保存失败」：配置改为声明在插件自己的 `Config` schema 上、并按 profile 条目 id 寻址，DSH ≥ 0.1.7（含 0.2.x）上「追问」设置页从「只读默认值」变成可保存。**
+
+- `dsh-settings@0.1.7-alpha.1` 起不再有命名空间注册：可编辑字段从插件自报的 `Config` schema 派生（只认标了 `volatile()` 的字段），`describe` / `update` 按 **profile 条目 id**（`cordis.patch.yml` 里那一行的 `id`）寻址。1.1.0 的接缝只会注册命名空间，于是这类宿主上每次保存都回 503；现在 host 半导出 `Config`（12 字段全部 `volatile()`）、按条目 id 打开同一个 revision 守卫的面，插件读运行期就地更新的活引用（不重挂）。老宿主（≤ 0.1.6）走原来的 `sidebarqa` 命名空间，行为不变。
+- 顺手用 `settings.configure({ auto: false })` 抑制宿主按 schema 自动生成的表单（本插件自己有一整页设置卡）；拒绝原因细分为 `no-entry` / `no-form` 并各自有具体 503 文案。
+- 依赖换成 `@deepseek-ai/schemastery@3.18.4`（devDependency 精确钉，`volatile()` 只存在于 DSH 这个分叉），**构建期打包**进 `lib/index.js`，运行期不依赖宿主那一份。**升级需重新 `pnpm install`；host 半改动，需重启 `dsh web`。**
 
 ### 1.1.0 - 2026-09-29
 
@@ -73,7 +81,7 @@
 - 探测是**运行期结构探测**（服务在不在），不是版本号比对：`sidebarRightTabs` / `sidebarRight` / `slots` 三件套齐备才注册。
 - `engines.dsh` 声明 `>=0.1.7-alpha.1`（如实反映设置接缝与图标改名两个世代），但 **DSH 完全不校验 `engines`**，所以它只是声明、不是闸门。
 - **真正的闸门是 `peerDependencies`（DSH ≥ 0.2.0）**：boot 对每个 `@deepseek-ai/dsh*` peer 区间跑 `semver.satisfies(运行时, 区间, { includePrerelease: true })`，任一不满足就**跳过整个 bundle patch 层**（插件不加载，只在 stderr 留一行）。本插件因此把所有 gated peer 写成**纯下限**（无 `<` 天花板）——`^0.1.0-rc.8` 这种带预发布的 caret 展开成 `>=0.1.0-rc.8 <0.2.0-0`，会在 0.2.0 上把插件整层挡掉（1.1.0 修的正是它）。回归：`tests/dsh-compat.spec.ts`。
-- **设置项的持久化需要 `dsh-settings` 仍提供命名空间注册**（≤ `0.1.5-rc.x`，即当前 npm `latest`）：`0.1.7-alpha.1` 起该 API 被移除（`SettingsForms` 改为从插件自报的 `Config` schema 派生可编辑字段，并按 profile 条目 id 寻址 `describe` / `update`），插件会**结构探测**到这一点并**安静降级**——追问功能照常，配置一律取默认值，日志里只有一条 `console.info`。0.1.7+ 上“设置卡继续可编辑”需要按新模型重做，是后续单独一条（[issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)）。
+- **设置项在 ≥ `0.1.7-alpha.1` 的宿主上按「插件自有 `Config` + profile 条目 id」持久化**：可编辑字段来自本插件导出的 `Config` schema（12 个字段全部 `volatile()`），写入经 DSH 的 settings 服务落到插件自己的 profile 行（`cordis.patch.yml` 里 `id: sidebar-qa` 的 `config:`），插件读的是运行期就地更新的活引用（不重挂）；1.2.0 起**设置页可直接保存**。老宿主（`dsh-settings` ≤ `0.1.6`，仍提供命名空间注册）走原来的 `sidebarqa` 命名空间，行为不变；两种形态由接缝**结构探测**互斥选择，都不会写错地方（[issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21) / [issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)）。
 
 ## 安装
 
@@ -100,13 +108,22 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 配置
 
-配置走 DSH 设置服务 `sidebarqa` 命名空间（settings.yaml 或 DSH 设置页）。
+配置走 DSH 设置服务：插件导出自己的 `Config` schema，DSH 据此在插件自己的 profile 行（`cordis.patch.yml` 的 `id: sidebar-qa`）里持久化，设置页或手写该行都等效。
 
-> ℹ️ **配置面板就在 DSH 设置页里**：「功能配置」面板（`src/client/ConfigPanel.tsx`）注册成一个 `settings.section`，导航路径是 **设置 → 左侧导航「追问」**（排位在 DSH 自带各页之后）。它编辑的仍是 host 的 `sidebarqa` 命名空间（经本插件自己的 `/sidebarqa/api/config.update`，带 revision 乐观锁），所以 **`settings.yaml` 的 `sidebarqa` 命名空间依然有效，两条路写的是同一份配置**。
+> ℹ️ **配置面板就在 DSH 设置页里**：「功能配置」面板（`src/client/ConfigPanel.tsx`）注册成一个 `settings.section`，导航路径是 **设置 → 左侧导航「追问」**（排位在 DSH 自带各页之后）。它经本插件自己的 `/sidebarqa/api/config.update` 读写（带 revision 乐观锁），而 host 半把这个请求转给当前宿主实际提供的那一种设置面：
+> - **DSH ≥ `0.1.7-alpha.1`**：按 **profile 条目 id** 寻址（`settings.describe` / `settings.update`），值落在插件自己的 profile 行——也就是下面这张表可以直接写进 `cordis.patch.yml`：
+>   ```yaml
+>   - id: sidebar-qa
+>     name: dsh-sidebar-qa
+>     config:
+>       answerModel: deepseek-v4
+>       historyStrategy: trim
+>   ```
+> - **更早的 DSH（`dsh-settings` ≤ `0.1.6`）**：仍走 `settings.yaml` 的 `sidebarqa` 命名空间，行为与 1.1.0 一致。
 >
-> ⚠️ 宿主升级到 `dsh-settings` ≥ 0.1.7（DSH `0.1.7-alpha.1+`）后该命名空间不再存在：面板会显示**默认值**，写入会被明确拒绝（消息见下），追问全部功能不受影响。
+> 两种形态由 `src/settings-face.ts` **结构探测**（有没有 `register`）互斥选择；宿主两个都没有时写入会返回 503，并**按原因给出具体文案**（`no-entry`：宿主按条目 id 编辑配置、但本插件认不出自己的行；`no-form`：两形都没有）——追问功能不受影响。
 
-下表的键都可以直接写进 `settings.yaml` 的 `sidebarqa` 命名空间。面板里则可以逐项编辑这些字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试），回答/摘要的模型渠道与模型为下拉框（选项来自运行时已配置的渠道）；直接手写 YAML 也完全等效。
+下表是可逐项编辑的 8 个常用键（`Config` schema 共 12 个字段，压缩/标题的 4 个内部参数见下方说明）。面板里逐项编辑这些字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试），回答/摘要的模型渠道与模型为下拉框（选项来自运行时已配置的渠道）；直接手写 YAML / 该 profile 行也完全等效。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -119,7 +136,7 @@ dsh plugin --profile web add <本仓库路径>
 | `answerModel` | `deepseek-v4-flash` | 子对话回答模型 |
 | `answerReasoningEffort` | `off` | 子对话思考模式（`off`/`high`/`max` 三档下拉） |
 
-> 配置面板（`config-fields.ts`）只声明上述 8 项常用设置；压缩/标题的内部调参键（`summarizeBudgetTokens`、`recentWindowMessages`、`backgroundWindowMessages`、`titleBudgetTokens`）不在面板暴露，只能在 `settings.yaml` 的 `sidebarqa` 命名空间里配置。
+> 配置面板（`config-fields.ts`）只声明上述 8 项常用设置；压缩/标题的内部调参键（`summarizeBudgetTokens`、`recentWindowMessages`、`backgroundWindowMessages`、`titleBudgetTokens`）不在面板暴露，只能手写配置（profile 行，或老宿主的 `sidebarqa` 命名空间）。
 
 > 压缩模式的下上文注入刻意保持轻量：旧背景压成**最多 3 句话**（目标 / 当前进度 / 未决事项），近期只保留最近 2 条且每段强截断（≤400 字符）；模型侧**从新到旧**提交，让当前进度落在注意力最强位置。摘要失败/无渠道时自动降级为「仅近期对话 + 引文 + 问题」，问答不中断；全量继承失败（主对话正在回答）时自动降级为压缩模式。
 
@@ -127,10 +144,12 @@ dsh plugin --profile web add <本仓库路径>
 
 ```
 dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
-├── src/index.ts            host：/sidebarqa/api 摘要 + 标题服务 + sidebarqa 设置命名空间
+├── src/index.ts            host：/sidebarqa/api 摘要 + 标题服务 + 设置接缝装配（导出插件 Config）
 ├── src/summarize.ts        表面文本抽取 + 流组装（纯函数，可测）
 ├── src/title.ts            标题提示词 + 规范化 + Q+A 输入框定（纯函数，可测）
-├── src/config.ts           设置 schema + 默认值
+├── src/config.ts           插件 Config schema（12 字段全部 volatile）+ 默认值
+├── src/live-config.ts      读运行期活引用（纯函数，可测）
+├── src/settings-face.ts    设置接缝结构探测：命名空间（≤0.1.6）/ profile 条目 id（≥0.1.7）
 ├── src/prompt-locale.ts    模型侧 zh/en 提示词词表 + 问题标记注册表（两半共享，纯函数，可测）
 ├── src/context-types.ts    结构化 cordis 服务面 + Context 增补
 └── src/client/             浏览器：选区捕获、浮层、问答面板、会话编排、追问记录
@@ -159,7 +178,7 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
     ├── settings-slot.ts      把配置面板注册成 DSH 设置页的一个 section（探测 + 重试，纯模块，可测）
     ├── settings-section.tsx  设置页「追问」页面：标题 + 说明 + ConfigPanel
-    ├── ConfigPanel.tsx       功能配置面板（编辑 sidebarqa 命名空间；由设置页的 settings.section 渲染）
+    ├── ConfigPanel.tsx       功能配置面板（逐项编辑 12 个配置键；由设置页的 settings.section 渲染）
     ├── config-fields.ts      配置面板行声明 + 数字钳制 + catalog 选项解析（纯函数，可测）
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成

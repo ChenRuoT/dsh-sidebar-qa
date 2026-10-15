@@ -183,9 +183,12 @@ export default [
     fixedExtension: false,
     dts: false,
     clean: false,
-    // Bundle schemastery into the host artifact so the plugin never depends on
-    // a runtime resolution of the (possibly diverged) schemastery instance.
-    noExternal: ['schemastery'],
+    // Bundle the schemastery fork into the host artifact: `volatile()` (the
+    // live-config contract this plugin's Config declares) exists only there, and
+    // the host reads nothing but the schema's meta/dict/toJSON() output — so the
+    // plugin never depends on a runtime resolution of the (possibly diverged)
+    // host copy.
+    noExternal: ['@deepseek-ai/schemastery'],
   },
   // Official profile channel: bundle id = package name (package.json `name`).
   clientBundle('dsh-sidebar-qa', 'client.js'),

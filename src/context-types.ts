@@ -178,20 +178,35 @@ export interface SidebarqaSettingsDescriptor {
   revision: number
 }
 
-/** The settings service face (register + revision-guarded update + describe).
+/**
+ * The settings service face — every member OPTIONAL, because the two upstream
+ * shapes share the name and nothing else.
  *
- * Upstream: `packages/settings/settings/src/index.ts` (`SettingsProvider`) —
- * `register` :419, `describe` :499, `update` :551 as of `dsh-settings@0.1.5-rc.2`.
- * `register` is ABSENT from `dsh-settings@0.1.7-alpha.1+` (`SettingsForms`, which
- * only ships `configure` / `describe` / `update` / `replace` / `mutate` / `schema`),
- * so no caller may assume it exists — the host half probes for it structurally in
- * `src/settings-face.ts` (issue #19). `describe` / `update` survive that change but
- * address a profile ENTRY ID there, not a plugin-declared namespace.
+ * Upstream: `packages/settings/settings/src/index.ts`. `dsh-settings@0.1.5-rc.2`
+ * (`SettingsProvider`) has `register(ns, schema)` + `describe` + `update(ns, …)`;
+ * `dsh-settings@0.1.7-alpha.1+` (`SettingsForms`) has **no `register`** and adds
+ * `configure` / `replace` / `mutate`, with `describe` / `update` addressing a
+ * profile ENTRY ID instead of a plugin-declared namespace. Neither the
+ * `register` call nor the `update` key may be assumed: the host half probes for
+ * each method by structure and keys the form on the shape it finds
+ * (`src/settings-face.ts`, issues #19 and #21).
  */
 export interface SidebarqaSettingsService {
-  register<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T>
-  describe(options?: { redactSecrets?: boolean }): SidebarqaSettingsDescriptor[]
-  update(ns: string, patch: object, expectedRevision?: number): Promise<void>
+  /** Legacy namespace registration (`SettingsProvider`); absent on 0.1.7+. */
+  register?<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T>
+  /**
+   * Page policy for this plugin instance (`SettingsForms`; absent on <= 0.1.6).
+   * `{ auto: false }` suppresses the host's auto-generated form for the entry
+   * because this plugin ships its own `settings.section` card.
+   */
+  configure?(presentation: { auto?: boolean }, owner?: unknown): () => void
+  describe?(options?: { redactSecrets?: boolean }): SidebarqaSettingsDescriptor[]
+  /**
+   * Merge `patch` into the addressed section. `ns` is the declared namespace on
+   * the legacy shape and the profile entry id on 0.1.7+, where `expectedRevision`
+   * is also honoured (a stale write rejects with `SETTINGS_CONFLICT`).
+   */
+  update?(ns: string, patch: object, expectedRevision?: number): Promise<void>
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -961,6 +976,26 @@ export interface SidebarqaSidebarRightTabInfo {
 // ────────────────────────────────────────────────────────────────────────────
 // Context augmentation (dual cordis scope)
 // ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One loader fiber's owning row, as the loader augments it.
+ *
+ * Upstream: `vendor/loader/src/index.ts` — `interface Fiber { entry?: Entry }`,
+ * assigned from `fiber.parent[Entry.key]` before the plugin body runs. The ROW
+ * ID (`entry.options.id`, `vendor/loader/src/config/entry.ts`) is what DSH ≥
+ * 0.1.7 addresses a plugin's configuration form by; `entry.id` is the
+ * tree-qualified path and is NOT the same string (`src/settings-face.ts`).
+ */
+export interface SidebarqaLoaderFiberEntry {
+  options: { id: string }
+}
+
+declare module 'cordis' {
+  interface Fiber {
+    /** The loader row that owns this fiber (`undefined` below a bare `plugin()` call). */
+    entry?: SidebarqaLoaderFiberEntry
+  }
+}
 
 declare module 'cordis' {
   interface Context {

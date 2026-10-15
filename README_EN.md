@@ -26,12 +26,20 @@
 - **🪆 Nested follow-ups**: select text inside a follow-up conversation and ask again — follow-ups nest arbitrarily deep
 - **🗂️ Follow-up records**: grouped under their root (main) session as a layered tree; scoped to the current workspace; nodes are collapsible and show last-activity time; the records tab stays open after jumping; archived/deleted follow-ups are **greyed out with a status badge** and can be removed from the records in one click (the whole subtree's mapping is pruned; the DSH session itself is untouched)
 - **🏷️ Two-phase naming**: a placeholder title from the first quoted line → after the first answer, a topic distilled from “question + answer” overwrites it
-- **⚙️ Configurable**: summary/answer model channels, reasoning effort, context windows and budgets — the entry point is **DSH Settings → the “Follow-up” page in the left nav** (the panel registers as a `settings.section`); the `sidebarqa` namespace in `settings.yaml` still works and writes the same configuration
+- **⚙️ Configurable**: summary/answer model channels, reasoning effort, context windows and budgets — the entry point is **DSH Settings → the “Follow-up” page in the left nav** (the panel registers as a `settings.section`); the same configuration can also be written straight into the plugin's own profile row (`config:` of the `id: sidebar-qa` row in `cordis.patch.yml`)
 - **🌏 Bilingual (zh / en)**: UI copy and model-facing prompts follow the DSH language setting and switch live (no reload, **including the chip of an already-open tab**); **the answer language follows the content you ask about**, not the interface language
 
 > 🔌 **Registers into DSH's OWN right sidebar only**: DSH **0.1.5-alpha.1 and newer** ships that sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`), and this plugin registers into it directly (the `ctx.sidebarRightTabs` / `ctx.sidebarRight` services plus the `sidebar.right.pane.tab` and `sidebar.right.pane.tab.title` seats) — **with no extra dependency**. `dsh-better-sidebar` support was removed entirely in 1.0.0. On an older DSH the plugin **still activates**: the selection popover and “Add to chat” keep working, only the sidebar tabs are not registered (and one `console.warn` is logged).
 
 ## 📦 Changelog
+
+### 1.2.0 - 2026-10-15
+
+**Fixes [issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21) "settings fail to save"**: the configuration is now declared on the plugin's own `Config` schema and addressed by profile entry id, so on DSH ≥ 0.1.7 (0.2.x included) the “Follow-up” settings page goes from “read-only defaults” to savable.
+
+- `dsh-settings@0.1.7-alpha.1` no longer offers namespace registration: editable fields are derived from the plugin's own `Config` schema (only fields marked `volatile()` count) and `describe` / `update` are addressed by **profile entry id** (the `id` of that row in `cordis.patch.yml`). 1.1.0's seam only knew how to register a namespace, so on such a host every save answered 503; now the host half exports `Config` (all 12 fields `volatile()`), opens the same revision-guarded face by entry id, and reads live refs the loader updates in place (no remount). Older hosts (≤ 0.1.6) keep the `sidebarqa` namespace, unchanged.
+- It also claims its own settings card with `settings.configure({ auto: false })` so the host does not auto-generate a second form for the same values, and the refusal reasons are now split into `no-entry` / `no-form` with specific 503 copy each.
+- The schema library is now `@deepseek-ai/schemastery@3.18.4` (exact devDependency pin — `volatile()` exists only in DSH's fork) and is **bundled into `lib/index.js`** at build time, so nothing is resolved from the host at runtime. **Upgrading needs another `pnpm install`; host half — restart `dsh web`.**
 
 ### 1.1.0 - 2026-09-29
 
@@ -73,7 +81,7 @@
 - The check is a **runtime structural probe** (are the services there), not a version comparison: the tabs register only once `sidebarRightTabs` / `sidebarRight` / `slots` are all present.
 - `engines.dsh` declares `>=0.1.7-alpha.1` (truthfully mirroring the settings-seam and icon-rename generations), but **DSH does not validate `engines` at all** — it is a declaration, not a gate.
 - **The real gate is `peerDependencies` (DSH ≥ 0.2.0)**: the boot runs `semver.satisfies(runtime, range, { includePrerelease: true })` against every `@deepseek-ai/dsh*` peer range, and one miss **skips the bundle's whole patch layer** (the plugin does not load; one stderr line remains). That is why every gated peer here is a **pure lower bound** (no `<` ceiling) — a caret over a prerelease like `^0.1.0-rc.8` expands to `>=0.1.0-rc.8 <0.2.0-0` and blocked the entire plugin on 0.2.0 (fixed in 1.1.0). Regression: `tests/dsh-compat.spec.ts`.
-- **Persisting settings needs `dsh-settings` to still offer namespace registration** (≤ `0.1.5-rc.x`, i.e. today's npm `latest`): from `0.1.7-alpha.1` that API is gone (`SettingsForms` derives editable fields from the plugin's own `Config` schema and addresses `describe` / `update` by profile entry id). The plugin **probes for this structurally** and degrades quietly — follow-ups work exactly as before, every setting falls back to its default, and the only log line is one `console.info`. Keeping the settings card editable on 0.1.7+ needs the new model and is tracked separately ([issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)).
+- **Settings persist as "the plugin's own `Config` + its profile entry id" on hosts ≥ `0.1.7-alpha.1`**: the editable fields come from the `Config` schema this plugin exports (all 12 fields `volatile()`), writes go through DSH's settings service into the plugin's own profile row (`config:` of the `id: sidebar-qa` row in `cordis.patch.yml`), and the plugin reads live refs updated in place (no remount). Since 1.2.0 the settings page **saves**. Older hosts (`dsh-settings` ≤ `0.1.6`, which still offers namespace registration) keep using the `sidebarqa` namespace, unchanged; the seam **probes by structure** and picks exactly one shape, so neither route writes to the wrong place ([issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21) / [issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)).
 
 ## Install
 
@@ -100,11 +108,22 @@ Restart `dsh web` (host-half changes need a restart; client-half changes only ne
 
 ## Configuration
 
-Configuration lives in the DSH settings service under the `sidebarqa` namespace (settings.yaml or the DSH settings page).
+Configuration goes through DSH's settings service: the plugin exports its own `Config` schema, DSH persists it in the plugin's own profile row (the `id: sidebar-qa` row of `cordis.patch.yml`), and the settings page or that row by hand are equivalent.
 
-> ℹ️ **The config panel lives in DSH's settings page.** The “functional config” panel (`src/client/ConfigPanel.tsx`) registers as a `settings.section`; the path is **Settings → the “Follow-up” page in the left nav** (ordered after every page DSH ships). It still edits the host's `sidebarqa` namespace (through this plugin's own `/sidebarqa/api/config.update`, with its revision optimistic lock), so **the `sidebarqa` namespace in `settings.yaml` remains valid — the two routes write the same configuration**.
+> ℹ️ **The config panel lives in DSH's settings page.** The “functional config” panel (`src/client/ConfigPanel.tsx`) registers as a `settings.section`; the path is **Settings → the “Follow-up” page in the left nav** (ordered after every page DSH ships). It reads and writes through this plugin's own `/sidebarqa/api/config.update` (with its revision optimistic lock), and the host half forwards that to whichever settings shape the running host actually offers:
+> - **DSH ≥ `0.1.7-alpha.1`**: addressed by **profile entry id** (`settings.describe` / `settings.update`), so values land in the plugin's own profile row — i.e. the table below can be written straight into `cordis.patch.yml`:
+>   ```yaml
+>   - id: sidebar-qa
+>     name: dsh-sidebar-qa
+>     config:
+>       answerModel: deepseek-v4
+>       historyStrategy: trim
+>   ```
+> - **Older DSH (`dsh-settings` ≤ `0.1.6`)**: still the `sidebarqa` namespace in `settings.yaml`, exactly as in 1.1.0.
+>
+> The two shapes are chosen **by structure** in `src/settings-face.ts` (is `register` there at all?); when a host has neither, a write answers 503 with copy that names the actual reason (`no-entry`: the host edits configuration by entry id but this plugin cannot name its own row; `no-form`: neither shape exists). Follow-ups are unaffected either way.
 
-Every key in the table below can be written straight into the `sidebarqa` namespace of `settings.yaml`. In the panel you can edit those fields row by row — text rows commit on blur/Enter, number rows clamp to their range, and writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (a conflict across windows prompts a retry); the answer/summary channel and model rows are dropdowns fed from the channels configured at runtime. Hand-editing the YAML is exactly equivalent.
+The table below lists the 8 commonly edited keys (the `Config` schema has 12 fields; the 4 compression/title internals are described below). In the panel you can edit those fields row by row — text rows commit on blur/Enter, number rows clamp to their range, and writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (a conflict across windows prompts a retry); the answer/summary channel and model rows are dropdowns fed from the channels configured at runtime. Hand-editing the YAML / that profile row is exactly equivalent.
 
 | Key | Default | Description |
 |---|---|---|
@@ -117,7 +136,7 @@ Every key in the table below can be written straight into the `sidebarqa` namesp
 | `answerModel` | `deepseek-v4-flash` | Follow-up answer model |
 | `answerReasoningEffort` | `off` | Follow-up reasoning effort (`off`/`high`/`max` dropdown) |
 
-> The config panel (`config-fields.ts`) declares only those 8 common settings; the compression/title internals (`summarizeBudgetTokens`, `recentWindowMessages`, `backgroundWindowMessages`, `titleBudgetTokens`) are not exposed there and are settable only in the `sidebarqa` namespace of `settings.yaml`.
+> The config panel (`config-fields.ts`) declares only those 8 common settings; the compression/title internals (`summarizeBudgetTokens`, `recentWindowMessages`, `backgroundWindowMessages`, `titleBudgetTokens`) are not exposed there and are settable only by hand (the profile row, or the `sidebarqa` namespace on an older host).
 
 > The compressed mode's context injection is deliberately light: the older background is squeezed into **at most 3 sentences** (goal / current progress / open items), the recent band keeps only the last 2 messages with hard truncation (≤400 chars each), and the model receives them **newest-first** so the current progress lands in the strongest attention position. If summarization fails or no channel is available, it degrades to “recent conversation + quote + question” and the Q&A is never blocked; if inherit fails (the main conversation is mid-answer) it degrades to compressed.
 
@@ -125,10 +144,12 @@ Every key in the table below can be written straight into the `sidebarqa` namesp
 
 ```
 dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
-├── src/index.ts            host: /sidebarqa/api context + title service + sidebarqa settings namespace
+├── src/index.ts            host: /sidebarqa/api context + title service + settings-seam wiring (exports the plugin Config)
 ├── src/summarize.ts        surface-text extraction + stream assembly (pure, tested)
 ├── src/title.ts            title prompt + normalization + Q+A input framing (pure, tested)
-├── src/config.ts           settings schema + defaults
+├── src/config.ts           the plugin Config schema (12 volatile fields) + defaults
+├── src/live-config.ts      reading the runtime's live config refs (pure, tested)
+├── src/settings-face.ts    settings-seam structural probe: namespace (≤0.1.6) / profile entry id (≥0.1.7)
 ├── src/prompt-locale.ts    model-facing zh/en prompt bundles + question-marker registry (shared, pure, tested)
 ├── src/context-types.ts    structural cordis service faces + Context augmentation
 └── src/client/             browser: selection capture, popover, ask panel, orchestration, records
@@ -157,7 +178,7 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── orchestrate.ts      create → placeholder rename → selectModel (default flash / thinking off) → prompt + continue + post-answer retitle
     ├── settings-slot.ts     register the config panel as a DSH settings section (probe + retry, pure, tested)
     ├── settings-section.tsx the settings “Follow-up” page: heading + description + ConfigPanel
-    ├── ConfigPanel.tsx      functional config panel (edits the `sidebarqa` namespace; rendered by the settings page's `settings.section`)
+    ├── ConfigPanel.tsx      functional config panel (edits all 12 config keys; rendered by the settings page's `settings.section`)
     ├── config-fields.ts     config row declarations + number coercion + catalog option resolution (pure, tested)
     ├── store.ts            parent→child map (localStorage-persisted, nested) + pending quotes + titled marks
     ├── injection.ts        XML escape/sanitize + injection format + placeholder topic

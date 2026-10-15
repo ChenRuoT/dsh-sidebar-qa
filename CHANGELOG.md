@@ -2,6 +2,25 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.0] - 2026-10-15
+
+**修 [issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21)「设置保存失败」：配置改为声明在插件自己的 `Config` schema 上、并按 profile 条目 id 寻址——DSH ≥ 0.1.7（含 0.2.x）上「追问」设置页从「只读默认值」变成可保存。**
+
+### Fixed
+
+- **设置面板在 DSH ≥ 0.1.7 上可以保存了**（**host 半改动，需重启 `dsh web`**）：`dsh-settings@0.1.7-alpha.1` 起没有 `register`，可编辑字段改为从插件自报的 `Config` schema 派生（`volatileForm` 只认标了 `volatile()` 的字段），`describe` / `update` 接受的是 **profile 条目 id**（`cordis.patch.yml` 里那一行的 `id`，本插件是 `sidebar-qa`），而不是插件声明的命名空间。1.1.0 的接缝只会注册命名空间，于是在这类宿主上 `configFace` 恒为 `undefined`——**每一次保存都回 503「this host exposes no sidebarqa settings namespace」**（正是 #21 截图里那行红字），面板只能显示默认值。
+  - host 半现在导出 `export const Config = SidebarqaPrefsSchema`，12 个字段**全部 `volatile()`**；`apply(ctx, config)` 拿到的是每字段一个**活引用**，新增的 `src/live-config.ts` 负责把它读成普通配置（字段缺失或读抛错只回落该字段的默认值，绝不让一次读失败打掉整个路由）。
+  - `src/settings-face.ts` 的接缝现在有两形、互斥：宿主有 `register`（≤ 0.1.6，低于本包声明下限）走原来的命名空间；没有就按**条目 id**（取 `ctx.fiber.entry.options.id`）打开**同一个** revision 守卫的 `describe` / `update` 面。id 取不到、或服务连 `describe`/`update` 都没有时给出**带原因的拒绝**（`no-entry` / `no-form`），503 文案由 `settingsRefusalMessage` 按原因生成，不再是一句「可能缺服务、也可能缺注册」的含糊话。
+  - 保存的值经 loader 的 volatile 提交（`updateVolatile` / `loader/volatile-update`）**直接写进运行中的引用**，插件不重挂；摘要与标题路由下一次调用读到的就是新值。
+  - 新增 `claimOwnSettingsCard`：在同代宿主上用 `settings.configure({ auto: false }, ctx.fiber)` 抑制宿主按 schema 自动生成的表单——本插件自己已有一整页设置卡（`settings.section`），同一份配置不该出现两个入口（结构探测；宿主没有该方法时静默跳过，且 disposer 挂在 effect 上随插件卸载）。
+- **配置的落点变了**（≥ 0.1.7）：写在插件自己的 profile 行（`cordis.patch.yml` 里 `id: sidebar-qa` 的 `config:`），不再写 `settings.yaml` 的 `sidebarqa` 段（那一代宿主本来也没有该命名空间）。老宿主行为与 1.1.0 一字不变。
+- **回归**：新增 `tests/live-config.spec.ts`（12 例：活引用识别全有全无、读永远给出完整普通配置、坏引用只降级单个字段）；`tests/config.spec.ts` 增加「每个字段必须 `volatile()`、根不可 `volatile`」（漏一个字段 = 宿主表单少一项且写入被 `Config field "…" is not volatile` 拒绝）与「解析结果就是运行期能就地更新的活引用」；`tests/settings-face.spec.ts` 重写（21 例）——两形接缝、**条目 id 寻址**、描述符值解引用（活引用直接上线会 `JSON.stringify` 成 `{}`，面板全空）、畸形宿主不抛、拒绝文案逐原因唯一，以及接线守卫（`profileEntryIdOf(ctx)`；`src/index.ts` 不得再出现 `no-register`）。
+- **实测（本机 checkout DSH `0.2.1-alpha.3`，只读）**：用**真实的** `SettingsForms` + `volatileForm` / `isVolatilePath` + loader 的 volatile 提交原语，驱动本插件**构建产物**的 `apply` 与 `/sidebarqa/api` 路由处理器（config editor 换成内存假件，不写用户 profile）：`config.get` → 200 / revision 0 / 12 个字段；`config.update` → 200（#21 里这是 503）/ revision 1 / 值落进行 config；活引用**立刻**读到新值；stale 写入 → 409 `settings-conflict`；未声明键 → 400；非 loopback Host → 403。同一路径上「按命名空间寻址」仍然失败（`No configurable plugin entry "sidebarqa"`），反向钉住了这个修法的必要性。
+
+### Dependencies
+
+- **`schemastery` → `@deepseek-ai/schemastery@3.18.4`（devDependency，精确钉）**：`volatile()` 只存在于 DSH 的分叉（npm `schemastery` 停在 `3.18.0`），而宿主只读 schema 的 `meta` / `dict` / `toJSON()`，所以这份 schemastery 由**构建期打包进 `lib/index.js`**（`tsdown.config.ts` 的 `noExternal`）——运行期不依赖宿主那一份，也就不会与它漂移。`dependencies` 因此变空（npm `schemastery` 不再被引用）。**升级需要重新 `pnpm install`。**
+
 ## [1.1.0] - 2026-09-29
 
 **修复 DSH `0.2.0` 上插件整个不加载：peer 区间写成了闸门会拒的「天花板形」，而 DSH 0.2.0 新增了一道启动期 peer 兼容闸。**
