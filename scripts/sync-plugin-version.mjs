@@ -3,9 +3,12 @@
  * version and `engines.dsh` as `package.json`.
  *
  * Wired to npm's `version` lifecycle script, so `pnpm version patch|minor|major`
- * updates both manifests BEFORE the release commit is created. The README asks
- * for the plugin-registry copy to stay in sync; `tests/dsh-compat.spec.ts`
- * enforces it, and this script is what makes that enforcement free to satisfy.
+ * updates both manifests while the release is being prepared. Note that the
+ * version commit pnpm/npm creates contains ONLY `package.json`: the release flow
+ * then stages this file, amends that commit, and re-points the tag
+ * (`git add dsh.plugin.json && git commit --amend --no-edit && git tag -f v<version>`).
+ * `tests/dsh-compat.spec.ts` enforces the two manifests agree, so a tag that
+ * skipped the amend fails CI before publishing.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 
