@@ -157,10 +157,16 @@
    - 浮层做视口翻转（顶部/右侧不越界）；支持「多段引用」作为 P2（先设计数据结构，不实现）。
 4. **分发** [S]
    - 发布到官方 plugin market 索引（`docs/user/guide/plugin-market.md`），每版写清 `engines.dsh` 与支持矩阵；发布说明补 0.2.1+ 的 remove→install 升级路径。
-5. **i18n / a11y 小修** [S]
+5. **设置入口迁移到统一插件设置页** [M]（用户 2026-10-19 提出）
+   - **上游现状**：插件配置应在 **Plugins 页 → 该 bundle 的页面 → Configuration** 展示——root keyed 席位 `plugins.bundle.config`（key = **bundle 包名**，`packages/client/ui-plugin-manager/src/client/PluginManagerPage.tsx:782`），由 `ctx.configForms.whileServed([entryId], …)`（`packages/client/ui-settings/src/client/config-form.ts:236,285,308`，服务含 `get` / `whileServed`）判断宿主是否为该条目提供了可服务表单；`dsh-context` 是现成参考（`ctx.inject(['configForms'])` + `slots.inject('plugins.bundle.config', …)`，注册自定义卡片并保留自己的控件）。
+   - **本插件现状**：仍注册成 `settings.section` 的独立「追问」整页（1.0.0 的选择，当时统一插件页还不存在）；功能可用，但不是上游现在的入口惯例。
+   - **方案**：新增 `client/plugin-settings-slot.ts`（纯探测 + 注册，可测）：`ctx.get('configForms')` 具备 `get` / `whileServed` 时，用 `whileServed(['sidebar-qa'])`（**profile 条目 id**，不是包名）门控，向 `plugins.bundle.config` 注册 key=`dsh-sidebar-qa`（**包名**）的卡片，复用现有 `ConfigPanel`（保留模型渠道/模型下拉与 revision 乐观锁）；拿不到 `configForms` 的旧宿主回退现有 `settings.section`。两条路径**互斥**，避免出现两个配置入口。
+   - **注意命名双轨**：与 `dsh-context` 不同（它的 row id 恰好等于包名），本插件 row id 是 `sidebar-qa`、包名是 `dsh-sidebar-qa`——slot key 用包名，configForms 的 namespace 用条目 id，二者不能互相推导。
+   - **验收**：DSH 0.2.1 桌面版 Settings → Plugins → `dsh-sidebar-qa` → Configuration 出现「追问」卡片，保存生效且无重复入口；旧宿主仍回退到原「追问」设置页；接线守卫测试只允许 `plugin-settings-slot.ts` 知道 `plugins.bundle.config`。
+6. **i18n / a11y 小修** [S]
    - zh-TW/zh-HK 至少明确回退策略（当前按 `zh` 前缀走简体）；面板按钮补 `aria-label`；`AskPanel` 切换条在长列表下可滚动。
 
-**验收**：草稿含 `@` chip 时「添加到对话」不再清空 chip；从 header 按钮、`/ask`、快捷键三个入口都能打开面板；选区被拒有反馈。
+**验收**：草稿含 `@` chip 时「添加到对话」不再清空 chip；从 header 按钮、`/ask`、快捷键三个入口都能打开面板；选区被拒有反馈；统一插件设置页出现本插件的 Configuration 卡片。
 
 ---
 
