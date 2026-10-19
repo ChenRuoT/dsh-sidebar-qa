@@ -33,6 +33,14 @@
 
 ## 📦 Changelog
 
+### 1.2.1 - 2026-10-19
+
+**Fixes two P0s on DSH 0.2.1: LAN / `--trusted-host` browsers got 403 from `/sidebarqa/api`, and the follow-up panel lost streaming while failed turns showed no reason at all.**
+
+- **Trust fence migrated to `webStartup`** (**host half — restart the host**): DSH `0.2.1-alpha.1` removed the `webRuntime` service, so the plugin fell back to an unevaluated `!!js` expression and silently degraded to loopback-only. It now reads `webStartup.trustedHosts` → legacy `webRuntime` → loader literal, and accepts the listener's **bind IP** with http(s) default-port normalization, like DSH's own `/api` fence. Regressions: `tests/trust-fence.spec.ts` + `tests/host-route.spec.ts`.
+- **Streaming and failed turns restored** (**client half — hard refresh**): 0.2.x no longer writes durable `assistant/chunk`; live deltas need `follow({ assistantStream: true })`. The panel now renders live text as it arrives and shows “This turn failed: <reason>” for failed/aborted attempts (folding `assistant/attempt`'s compact stream), instead of sitting on “Generating…” forever. Regressions: `tests/answer.spec.ts` + `tests/session-wire.spec.ts`.
+- **Type stubs moved to `0.2.1-rc.2` and the boot-gate tests now mirror both generations** (0.2.0 reads peers, 0.2.1-alpha.3+ reads `engines.dsh` only), plus a `package.json` ↔ `dsh.plugin.json` version/engines sync guard. **Upgrading needs another `pnpm install`.**
+
 ### 1.2.0 - 2026-10-15
 
 **Fixes [issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21) "settings fail to save"**: the configuration is now declared on the plugin's own `Config` schema and addressed by profile entry id, so on DSH ≥ 0.1.7 (0.2.x included) the “Follow-up” settings page goes from “read-only defaults” to savable.
@@ -79,8 +87,8 @@
 
 - **The sidebar tabs need DSH ≥ `0.1.5-alpha.1`**: DSH's own right sidebar (`@deepseek-ai/dsh-client-ui-sidebar-right`) ships from that release. On earlier DSH the plugin is not inactive — the popover and “Add to chat” work exactly as before.
 - The check is a **runtime structural probe** (are the services there), not a version comparison: the tabs register only once `sidebarRightTabs` / `sidebarRight` / `slots` are all present.
-- `engines.dsh` declares `>=0.1.7-alpha.1` (truthfully mirroring the settings-seam and icon-rename generations), but **DSH does not validate `engines` at all** — it is a declaration, not a gate.
-- **The real gate is `peerDependencies` (DSH ≥ 0.2.0)**: the boot runs `semver.satisfies(runtime, range, { includePrerelease: true })` against every `@deepseek-ai/dsh*` peer range, and one miss **skips the bundle's whole patch layer** (the plugin does not load; one stderr line remains). That is why every gated peer here is a **pure lower bound** (no `<` ceiling) — a caret over a prerelease like `^0.1.0-rc.8` expands to `>=0.1.0-rc.8 <0.2.0-0` and blocked the entire plugin on 0.2.0 (fixed in 1.1.0). Regression: `tests/dsh-compat.spec.ts`.
+- `engines.dsh` declares `>=0.1.7-alpha.1` (truthfully mirroring the settings-seam and icon-rename generations).
+- **There are two gate generations, and they read different fields**: DSH `0.2.0` checks every `@deepseek-ai/dsh*` range in `peerDependencies`; DSH `0.2.1-alpha.3+` reads an own `engines.dsh` and, when present, **ignores peerDependencies entirely**. Both run `semver.satisfies(runtime, range, { includePrerelease: true })`, and one miss **skips the bundle's whole patch layer** (the plugin does not load; one stderr line remains). That is why both kinds of range here are **pure lower bounds** (no `<` ceiling) — a caret over a prerelease like `^0.1.0-rc.8` expands to `>=0.1.0-rc.8 <0.2.0-0` and blocked the entire plugin on 0.2.x (fixed in 1.1.0). Regression: `tests/dsh-compat.spec.ts` (mirrors both gates and checks that `engines.dsh` stays in sync between `package.json` and `dsh.plugin.json`).
 - **Settings persist as "the plugin's own `Config` + its profile entry id" on hosts ≥ `0.1.7-alpha.1`**: the editable fields come from the `Config` schema this plugin exports (all 12 fields `volatile()`), writes go through DSH's settings service into the plugin's own profile row (`config:` of the `id: sidebar-qa` row in `cordis.patch.yml`), and the plugin reads live refs updated in place (no remount). Since 1.2.0 the settings page **saves**. Older hosts (`dsh-settings` ≤ `0.1.6`, which still offers namespace registration) keep using the `sidebarqa` namespace, unchanged; the seam **probes by structure** and picks exactly one shape, so neither route writes to the wrong place ([issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21) / [issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)).
 
 ## Install
@@ -94,6 +102,8 @@ dsh plugin --profile web add <this repo path>
 ```
 
 Restart `dsh web` (host-half changes need a restart; client-half changes only need a browser hard refresh).
+
+> DSH `0.2.1-alpha.2+` profiles **refuse to install over an installed plugin**: upgrade by running `dsh plugin --profile web remove dsh-sidebar-qa`, then `add` the new version. For the desktop app, run the CLI only after **fully quitting** the application, or use the in-app Plugins page; its profile is `--profile desktop`.
 
 ## Usage
 
@@ -178,7 +188,7 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── orchestrate.ts      create → placeholder rename → selectModel (default flash / thinking off) → prompt + continue + post-answer retitle
     ├── settings-slot.ts     register the config panel as a DSH settings section (probe + retry, pure, tested)
     ├── settings-section.tsx the settings “Follow-up” page: heading + description + ConfigPanel
-    ├── ConfigPanel.tsx      functional config panel (edits all 12 config keys; rendered by the settings page's `settings.section`)
+    ├── ConfigPanel.tsx      functional config panel (edits the 8 common keys; the `Config` schema has 12 fields; rendered by the settings page's `settings.section`)
     ├── config-fields.ts     config row declarations + number coercion + catalog option resolution (pure, tested)
     ├── store.ts            parent→child map (localStorage-persisted, nested) + pending quotes + titled marks
     ├── injection.ts        XML escape/sanitize + injection format + placeholder topic
@@ -248,7 +258,7 @@ The overarching instruction goes **first** in the input so the attention mechani
 ```bash
 pnpm install
 pnpm build      # tsc declarations + tsdown (lib/index.js + lib/client.js + lib/client-registry.js)
-pnpm test       # vitest (answer / ask-mode / config / config-fields / context-meter / current-session / draft-insert / history-scope / history-time / injection / locales / model-menu / model-seat / prompt-locale / quote-draft / session-wire / settings-section / sidebar-native / store / summarize / title)
+pnpm test       # vitest (30 spec files / 443 tests; pure modules + sidebar-native / settings-slot / panel-boundary / primitives / panel-icons / dsh-compat / markdown-labels / trust-fence / host-route)
 pnpm typecheck
 ```
 

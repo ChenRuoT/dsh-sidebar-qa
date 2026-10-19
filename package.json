@@ -57,7 +57,8 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "prepare": "tsdown",
-    "test": "vitest run"
+    "test": "vitest run",
+    "version": "node scripts/sync-plugin-version.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.8",
@@ -72,9 +73,9 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.1",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.1",
-    "@deepseek-ai/schemastery": "3.18.4",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
     "@types/node": "^24.0.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.1",

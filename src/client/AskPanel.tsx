@@ -17,7 +17,7 @@ import type {
   SidebarqaTabComponentProps,
 } from '../context-types.ts'
 import type { SidebarqaHistoryStrategy } from '../config.ts'
-import { lastEndSeedIndex, transcriptRowsOf, type TranscriptRow } from './answer.ts'
+import { applyAssistantStreamFrame, lastEndSeedIndex, liveStreamOf, transcriptRowsOf, type TranscriptRow } from './answer.ts'
 import {
   followUpAvailability,
   isFollowable,
@@ -43,6 +43,20 @@ interface AskPanelProps extends Omit<SidebarqaTabComponentProps, 'store'> {
 }
 
 type Phase = 'idle' | 'asking' | 'answering' | 'error'
+
+/**
+ * The in-flight answer as the live assistant frames report it. `startedAfterSeq`
+ * is the durable log cut at attempt start: once a durable `assistant/message` or
+ * `assistant/attempt` lands past it, that row replaces this live one.
+ */
+interface LiveStream {
+  startedAfterSeq: number
+  text: string
+  failure?: string
+}
+
+/** Sort key for the live row: always after every durable row. */
+const LIVE_ROW_SEQ = Number.MAX_SAFE_INTEGER
 
 export function AskPanel(props: AskPanelProps) {
   const { ctx, scope, visible, store, sidebar } = props
@@ -162,6 +176,10 @@ export function AskPanel(props: AskPanelProps) {
   // initial view on the child's OWN first message (quote + question) and
   // loads the inherited history upward on scroll, like the main conversation.
   const [loadedEvents, setLoadedEvents] = useState<SidebarqaHistoryEntry[]>([])
+  // The running answer's live deltas (assistant-stream frames). DSH 0.2.x no
+  // longer writes durable `assistant/chunk`, so this is the only thing on screen
+  // between `prompt` and the turn's settlement.
+  const [liveStream, setLiveStream] = useState<LiveStream | null>(null)
   const [anchorSeq, setAnchorSeq] = useState<number | null>(null)
   const [hasOlder, setHasOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -174,10 +192,27 @@ export function AskPanel(props: AskPanelProps) {
   // once the live follow has opened.
   const cursorRef = useRef<number | null>(null)
 
-  // The transcript rows derive from the loaded events (the follow and the
-  // upward paging both append to `loadedEvents`). Declared before the anchor
-  // effect so the effect can retry anchoring once the own first message lands.
-  const rows = useMemo(() => transcriptRowsOf(loadedEvents), [loadedEvents])
+  // The transcript rows derive from the loaded events plus the live stream
+  // (the follow and the upward paging both append to `loadedEvents`). Declared
+  // before the anchor effect so the effect can retry anchoring once the own
+  // first message lands.
+  const rows = useMemo<TranscriptRow[]>(() => {
+    const durable = transcriptRowsOf(loadedEvents)
+    if (liveStream === null || (liveStream.text === '' && liveStream.failure === undefined)) return durable
+    // A settlement past the attempt's start replaces the live row. This also
+    // covers the ordering where the durable event is appended before `end`.
+    const settled = loadedEvents.some(({ event }) =>
+      (event.type === 'assistant/message' || event.type === 'assistant/attempt')
+      && event.seq > liveStream.startedAfterSeq)
+    if (settled) return durable
+    return [...durable, {
+      role: 'assistant',
+      text: liveStream.text,
+      seq: LIVE_ROW_SEQ,
+      live: true,
+      ...liveStream.failure === undefined ? {} : { failure: liveStream.failure },
+    }]
+  }, [loadedEvents, liveStream])
 
   // On session change: default to the latest follow-up of that session that can
   // actually be read. The feeds are read HERE rather than through the render
@@ -200,6 +235,7 @@ export function AskPanel(props: AskPanelProps) {
     seededRef.current = false
     anchoredRef.current = false
     setLoadedEvents([])
+    setLiveStream(null)
     setAnchorSeq(null)
     setHasOlder(false)
     setLoadingOlder(false)
@@ -242,8 +278,11 @@ export function AskPanel(props: AskPanelProps) {
   useEffect(() => {
     if (following === null || !visible) return
     return followSession(ctx, following, {
-      snapshot: ({ entries, cursor, hasMore }) => {
+      snapshot: ({ entries, cursor, hasMore, assistantStream }) => {
         cursorRef.current = cursor
+        // A reopened follow republishes the active attempt, so the in-flight
+        // answer survives a tab switch / carrier reconnect.
+        setLiveStream(liveStreamOf(assistantStream))
         if (!seededRef.current) {
           seededRef.current = true
           const seedIndex = lastEndSeedIndex(entries)
@@ -257,6 +296,14 @@ export function AskPanel(props: AskPanelProps) {
       },
       append: (entry) => {
         setLoadedEvents(prev => mergeEntries(prev, [entry]))
+        // A settled attempt replaces the live row; drop it now so the durable
+        // row is the only copy (the derived rows suppression is the backstop).
+        if (entry.event.type === 'assistant/message' || entry.event.type === 'assistant/attempt') {
+          setLiveStream(prev => prev === null || entry.event.seq <= prev.startedAfterSeq ? prev : null)
+        }
+      },
+      assistantStream: (frame) => {
+        setLiveStream(prev => applyAssistantStreamFrame(prev, frame))
       },
     })
   }, [following, visible, ctx])
@@ -616,7 +663,8 @@ function Transcript({
       {rows.map((row, index) => {
         const isAnchor = !dividerPlaced && anchorSeq !== null && row.seq > anchorSeq
         if (isAnchor) dividerPlaced = true
-        const streaming = running && index === lastIndex && row.role === 'assistant'
+        const streaming = row.live === true
+          || (running && index === lastIndex && row.role === 'assistant' && row.failure === undefined)
         return (
           <div key={row.seq} ref={isAnchor ? anchorRef : undefined}>
             {isAnchor && (
@@ -626,7 +674,12 @@ function Transcript({
             )}
             {row.role === 'user'
               ? <UserRow text={row.text} />
-              : <AssistantRow text={row.text} streaming={streaming} labels={labels} />}
+              : <AssistantRow
+                  text={row.text}
+                  streaming={streaming}
+                  {...row.failure === undefined ? {} : { failure: row.failure }}
+                  labels={labels}
+                />}
           </div>
         )
       })}
@@ -634,17 +687,27 @@ function Transcript({
   )
 }
 
-/** One assistant message: raw markdown, no card (mirrors the main conversation). */
-function AssistantRow({ text, streaming, labels }: {
+/** One assistant message: raw markdown, no card (mirrors the main conversation).
+ *  A failed/aborted attempt also carries its reason, and may still show the
+ *  partial text the model produced before it failed. */
+function AssistantRow({ text, streaming, failure, labels }: {
   text: string
   streaming: boolean
+  failure?: string
   /** Identity-stable per locale (see the AskPanel memo). */
   labels: MarkdownLabels
 }) {
   return (
     <div className={css.assistantRow}>
-      <div className={css.assistantMarkdown}>
-        <MarkdownText text={text} streaming={streaming} labels={labels} />
+      <div className={css.assistantColumn}>
+        {failure !== undefined && (
+          <div className={css.turnFailure}>{t('askTurnFailed', { detail: failure })}</div>
+        )}
+        {text !== '' && (
+          <div className={css.assistantMarkdown}>
+            <MarkdownText text={text} streaming={streaming} labels={labels} />
+          </div>
+        )}
       </div>
     </div>
   )

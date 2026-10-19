@@ -137,6 +137,8 @@ export const zh = {
   errSaveFailed: '保存失败：{detail}',
   errSaveConflict: '保存失败：配置已在其他窗口被修改，请重试',
   errAskFailed: '追问失败：{detail}',
+  /** One turn failed inside the transcript (the reason, not the whole panel). */
+  askTurnFailed: '本轮回答失败：{detail}',
   errModelFailed: '模型加载失败：{detail}',
   /** Panel crash strip (`panel-boundary.tsx`) — contained, not fatal. */
   errPanelCrashed: '面板渲染出错：{detail}',
@@ -244,6 +246,7 @@ export const en: Record<CopyKey, string> = {
   errSaveFailed: 'Save failed: {detail}',
   errSaveConflict: 'Save failed: the settings were changed in another window — please retry',
   errAskFailed: 'Ask failed: {detail}',
+  askTurnFailed: 'This turn failed: {detail}',
   errModelFailed: 'Model load failed: {detail}',
   errPanelCrashed: 'The panel failed to render: {detail}',
   panelCrashHint: 'The failure was contained in place — the tab itself is intact. Retry, or switch sessions and come back.',

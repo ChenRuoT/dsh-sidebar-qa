@@ -117,6 +117,26 @@
   justify-content: flex-start;
 }
 
+.assistantColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* One failed/aborted attempt inside the transcript: the reason, above the
+   partial markdown the model managed to produce before it failed. */
+.turnFailure {
+  max-width: 100%;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .userContent {
   max-width: 88%;
   display: flex;

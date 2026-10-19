@@ -152,21 +152,24 @@ function userMessage(text: string): SidebarqaLlmMessage {
 /**
  * The non-loopback authorities this deployment serves, for the /api trust fence.
  *
- * Matched on the row's `id`, not on `name`: the web-app bundle mounts that row as
- * `id: connection` with `name: '@deepseek-ai/dsh-client-connection'`
- * (`packages/bundle/web-app/cordis.patch.yml`), so the `name === 'connection'` test
- * this used to do never matched anything and the fence silently degraded to
- * loopback-only for every LAN or custom-Host browser.
+ * The value is read from whichever runtime face the host exposes, in this order:
  *
- * The PRIMARY source is `webRuntime.trustedHosts`, because the row's own config is
- * NOT a list: the shipped patch declares `trustedHosts: !!js ctx.webRuntime.
- * trustedHosts`, and `entry.options.config` keeps that expression UNEVALUATED
- * (evaluation happens in the loader's `internal/config` hook, against the fiber's
- * config). Reading it as if it were an array is worse than not reading it at all —
- * a non-array reaches `isTrustedAuthority`'s `.some()` and throws, and the fence
- * runs outside the route's try/catch, so the request would HANG rather than answer.
- * Hence the array check on every source, including the row fallback kept for a
- * deployment whose patch layer replaced the expression with a literal list.
+ * 1. `webStartup.trustedHosts` — DSH ≥ `0.2.1-alpha.1`. `webRuntime` was removed
+ *    in that release (`packages/bundle/web-app/cordis.patch.yml` mounts only
+ *    `webStartup`, provided by `packages/bundle/web-app/src/startup.ts`), and
+ *    this face carries the already-evaluated invocation authorities. Reading only
+ *    `webRuntime` here made the fence fall through to the loader row below.
+ * 2. `webRuntime.trustedHosts` — the 0.1.7–0.2.0 face, kept as a fallback while
+ *    this package still declares `engines.dsh: >=0.1.7-alpha.1`.
+ * 3. The loader's `connection` row config literal — for a deployment whose patch
+ *    layer replaced the shipped `!!js` expression with a plain list. The row's
+ *    own shipped config is an UNEVALUATED `!!js` node (`{ __jsExpr: … }`), which
+ *    is why this is a fallback and why EVERY source is array-checked: a non-array
+ *    reaching `isTrustedAuthority`'s `.some()` would throw, and the fence runs
+ *    outside the route's try/catch, so the request would HANG rather than answer.
+ *
+ * The row is matched on `id`, not `name`: the web-app bundle mounts it as
+ * `id: connection` with `name: '@deepseek-ai/dsh-client-connection'`.
  * @param ctx - the host plugin context.
  * @returns the trusted authorities; `[]` means loopback-only.
  */
@@ -174,14 +177,50 @@ function trustedHostsOf(ctx: Context): string[] {
   const strings = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 
-  const fromRuntime = strings(ctx.get('webRuntime')?.trustedHosts)
-  if (fromRuntime.length > 0) return fromRuntime
+  // Presence decides, not emptiness: an empty list from the authoritative face
+  // means "loopback only", not "fall through to another store".
+  const startup = ctx.get('webStartup')
+  if (startup !== undefined) return strings(startup.trustedHosts)
+  const runtime = ctx.get('webRuntime')
+  if (runtime !== undefined) return strings(runtime.trustedHosts)
 
   for (const entry of ctx.loader.entries()) {
     if (entry.options.id !== 'connection') continue
     return strings(entry.options.config?.trustedHosts)
   }
   return []
+}
+
+/**
+ * The listener's own bind IP literal (the Host a browser dialing this machine
+ * sends), or undefined when the host's webserver face does not expose it.
+ *
+ * DSH ≥ `0.2.1-alpha.1` accepts the bind address in the /api fence independently
+ * of `trustedHosts` (`packages/client/connection/src/api-request-trust.ts:105-151`),
+ * because `dsh web --host 10.0.0.7` is dialed by that literal and appears in no
+ * trusted-host list.
+ * @param ctx - the host plugin context.
+ * @returns the bind host, or undefined when unreadable.
+ */
+function bindHostOf(ctx: Context): string | undefined {
+  try {
+    return ctx.webServer.host
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The listener's protocol, for default-port normalization in the fence.
+ * @param ctx - the host plugin context.
+ * @returns `https:` behind TLS, else `http:` (also the fence's default).
+ */
+function bindProtocolOf(ctx: Context): 'http:' | 'https:' {
+  try {
+    return ctx.webServer.protocol === 'https:' ? 'https:' : 'http:'
+  } catch {
+    return 'http:'
+  }
 }
 
 /**
@@ -461,7 +500,7 @@ export function apply(ctx: Context, config?: SidebarqaLiveConfig): void {
   // pending forever. Deny instead — the safe direction for a trust check.
   const fence = (req: IncomingMessage): boolean => {
     try {
-      return isTrustedApiRequest(req, trustedHostsOf(ctx))
+      return isTrustedApiRequest(req, trustedHostsOf(ctx), bindHostOf(ctx), bindProtocolOf(ctx))
     } catch (error) {
       console.warn('[dsh-sidebar-qa] the /api trust fence failed; refusing the request:', error)
       return false

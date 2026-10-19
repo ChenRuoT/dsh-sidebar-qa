@@ -1,44 +1,52 @@
 /**
- * The plugin must load on a DSH 0.2.x host — the peer gate says so, twice.
+ * The plugin must load on every DSH this package claims — under BOTH gate
+ * generations, because the gate changed shape mid-0.2:
  *
- * DSH 0.2.0 added a boot-time compatibility gate
- * (`packages/boot/app-boot/src/plugin-compatibility.ts`,
- * `evaluatePluginCompatibility`): for one profile bundle, EVERY
- * `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` entry in its `peerDependencies` is
- * checked with `semver.satisfies(runtimeVersion, range, { includePrerelease: true })`.
- * A bundle with even one unsatisfied peer has its WHOLE patch layer skipped
- * (`profile.ts` `loadProfileDirectory` pushes it onto `skippedBundles` and the
- * boot prints `dsh: skipping profile bundle "…"` to stderr) — the host half
- * never loads and the client bundle is never composed, so the plugin is simply
- * absent. Not degraded: absent, with the only trace on stderr.
+ * - **DSH 0.2.0** (`packages/boot/app-boot/src/plugin-compatibility.ts`):
+ *   EVERY `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` entry in `peerDependencies`
+ *   is checked with `semver.satisfies(runtime, range, { includePrerelease: true })`.
+ *   A bundle with one unsatisfied peer has its WHOLE patch layer skipped
+ *   (`loadProfileDirectory` → `skippedBundles`, one stderr line) — the plugin is
+ *   ABSENT, not degraded. This is why every gated peer range is a pure lower
+ *   bound: `^0.1.0-rc.8` is a floor PLUS a ceiling (`<0.2.0-0`), and it skipped
+ *   the entire bundle on 0.2.x (the 1.1.0 fix).
+ * - **DSH 0.2.1-alpha.3+**: the gate reads an own `engines.dsh` FIRST and, when
+ *   present, **ignores peerDependencies entirely** (`unmetRequirements`:
+ *   `if (Object.hasOwn(engines, 'dsh')) return …`). So `engines.dsh` is now the
+ *   real loading switch — it must also be a pure lower bound, and it must stay
+ *   in sync between `package.json` and `dsh.plugin.json`.
  *
- * This plugin lived exactly that failure: the peer was written
- * `@deepseek-ai/dsh-client-locale: ^0.1.0-rc.8`, and a caret on a prerelease
- * normalizes to `>=0.1.0-rc.8 <0.2.0-0` — a CEILING, not a floor. DSH
- * `0.2.0-rc.1` is past `0.2.0-0`, so on every 0.2.x host the bundle was
- * skipped, which is what the 0.2.0 upgrade report looked like from the user
- * side. The remedy is structural: every gated peer range is a pure lower bound
- * (no `<` comparator), which admits 0.2.x and every later generation instead of
- * predicting one.
+ * The peer ranges still matter: a 0.2.0 host has no `engines.dsh` branch, so it
+ * keeps evaluating them. Both kinds of range are therefore asserted to admit
+ * the whole supported runtime line and every later prerelease.
  *
- * This suite mirrors the gate in node so the failure is a red test here rather
- * than a silently missing plugin on someone's machine. The `stub pinning`
- * block closes the other half of the same lesson (hard constraint 8): a
- * devDependency range like `^0.1.0-rc.8` can never match a newer prerelease,
- * so the type stub silently freezes on an old API generation while `tsc`
- * reports green.
+ * The `stub pinning` block closes the other half of the same lesson (hard
+ * constraint 8): a devDependency range like `^0.1.0-rc.8` can never match a
+ * newer prerelease, so the type stub silently freezes on an old API generation
+ * while `tsc` reports green.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import semver from 'semver'
 import { describe, expect, it } from 'vitest'
 
+/** One plugin manifest as the boot gate reads it. */
+interface GatedManifest {
+  readonly engines?: { readonly dsh?: string }
+  readonly peerDependencies: Record<string, string>
+}
+
 /** This package's manifest — the very object the DSH gate reads. */
-const MANIFEST = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+const MANIFEST = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as GatedManifest & {
   name: string
   version: string
-  peerDependencies: Record<string, string>
   devDependencies: Record<string, string>
+}
+
+/** The plugin-registry channel manifest; it carries its own version/engines copy. */
+const PLUGIN_MANIFEST = JSON.parse(readFileSync(new URL('../dsh.plugin.json', import.meta.url), 'utf8')) as {
+  version?: string
+  engines?: { dsh?: string }
 }
 
 /** The peer moniker the 0.2.0 gate evaluates; everything else is unread. */
@@ -46,15 +54,17 @@ const DSH_PEER_PREFIX = '@deepseek-ai/dsh-'
 const GATED_NAMES = ['@deepseek-ai/dsh', DSH_PEER_PREFIX]
 
 /**
- * DSH runtimes this plugin must load on, in the order they matter: the floor it
- * declares, the previous release line, the runtime that broke it, the first
- * final 0.2, and a future prerelease that a pure lower bound must still admit.
+ * DSH runtimes this plugin must load on: the declared floor, the release that
+ * broke the peers, the first final 0.2, the current 0.2.1 line, and a future
+ * prerelease that a pure lower bound must still admit.
  */
 const RUNTIMES = [
   '0.1.7-alpha.1',
   '0.1.7-rc.2',
   '0.2.0-rc.1',
   '0.2.0',
+  '0.2.1-rc.2',
+  '0.2.1',
   '0.3.0-rc.1',
 ]
 
@@ -62,18 +72,39 @@ const RUNTIMES = [
 const DSH_SOURCE_ROOT = process.env.DSH_SOURCE_ROOT ?? 'D:/dsh/deepseek-harness'
 const DSH_APP_BOOT_MANIFEST = join(DSH_SOURCE_ROOT, 'packages/boot/app-boot/package.json')
 
+/** Whether one range accepts a runtime (the gate's own flags). */
+function admits(range: string, runtime: string): boolean {
+  return semver.satisfies(runtime, range, { includePrerelease: true })
+}
+
 /**
- * One run of the 0.2.0 boot gate over this manifest, mirrored line for line.
+ * One run of the 0.2.0 gate over a manifest, mirrored line for line.
  * @param runtimeVersion - the DSH version to check against.
  * @returns the peers the gate would skip the bundle over, or undefined when the plugin loads.
  */
-function gatedPeersOf(runtimeVersion: string): Record<string, string> | undefined {
+function gatedPeersOf(manifest: GatedManifest, runtimeVersion: string): Record<string, string> | undefined {
   const peers: Record<string, string> = {}
-  for (const [name, range] of Object.entries(MANIFEST.peerDependencies)) {
+  for (const [name, range] of Object.entries(manifest.peerDependencies)) {
     if (name !== '@deepseek-ai/dsh' && !name.startsWith(DSH_PEER_PREFIX)) continue
-    if (!semver.satisfies(runtimeVersion, range, { includePrerelease: true })) peers[name] = range
+    if (!admits(range, runtimeVersion)) peers[name] = range
   }
   return Object.keys(peers).length === 0 ? undefined : peers
+}
+
+/**
+ * One run of the 0.2.1+ gate over a manifest: an own `engines.dsh` decides
+ * ALONE; peers are read only when it is absent.
+ * @param manifest - plugin manifest.
+ * @param runtimeVersion - the DSH version to check against.
+ */
+function unmetRequirementsOf(manifest: GatedManifest, runtimeVersion: string): Record<string, string> | undefined {
+  const engines = manifest.engines ?? {}
+  if (Object.hasOwn(engines, 'dsh')) {
+    const range = engines.dsh
+    if (typeof range !== 'string') throw new Error('Plugin manifest engines.dsh must be a string')
+    return admits(range, runtimeVersion) ? undefined : { 'engines.dsh': range }
+  }
+  return gatedPeersOf(manifest, runtimeVersion)
 }
 
 /** Every `@deepseek-ai/dsh*` peer range the manifest declares. */
@@ -83,14 +114,14 @@ function dshPeers(): Array<{ name: string; range: string }> {
     .map(([name, range]) => ({ name, range }))
 }
 
-describe('the DSH 0.2 peer-compatibility gate', () => {
+describe('the DSH boot gate — 0.2.0 peer generation', () => {
   it('reads at least one gated peer, so the checks below cannot go vacuous', () => {
     expect(dshPeers().length).toBeGreaterThanOrEqual(1)
   })
 
   it('admits every DSH runtime this plugin supports', () => {
     for (const runtime of RUNTIMES) {
-      expect(gatedPeersOf(runtime), `${MANIFEST.name}@${MANIFEST.version} would be skipped on dsh ${runtime}`).toBeUndefined()
+      expect(gatedPeersOf(MANIFEST, runtime), `${MANIFEST.name}@${MANIFEST.version} would be skipped on dsh ${runtime}`).toBeUndefined()
     }
   })
 
@@ -101,11 +132,11 @@ describe('the DSH 0.2 peer-compatibility gate', () => {
     const ceiling = semver.validRange('^0.1.0-rc.8')
     expect(ceiling).not.toBeNull()
     expect(ceiling).toContain('<0.2.0-0')
-    // The same manifest with the retired range fails the gate on the runtime
-    // that motivated this suite.
-    const historical = { ...MANIFEST.peerDependencies, '@deepseek-ai/dsh-client-locale': '^0.1.0-rc.8' }
-    expect(Object.entries(historical).some(([name]) => name === '@deepseek-ai/dsh-client-locale')).toBe(true)
-    expect(semver.satisfies('0.2.0-rc.1', historical['@deepseek-ai/dsh-client-locale']!, { includePrerelease: true })).toBe(false)
+    const historical: GatedManifest = {
+      peerDependencies: { ...MANIFEST.peerDependencies, '@deepseek-ai/dsh-client-locale': '^0.1.0-rc.8' },
+    }
+    expect(Object.entries(historical.peerDependencies).some(([name]) => name === '@deepseek-ai/dsh-client-locale')).toBe(true)
+    expect(admits(historical.peerDependencies['@deepseek-ai/dsh-client-locale']!, '0.2.0-rc.1')).toBe(false)
   })
 
   it('writes every gated peer as a pure lower bound — no ceiling can re-block a future generation', () => {
@@ -113,18 +144,69 @@ describe('the DSH 0.2 peer-compatibility gate', () => {
       const normalized = semver.validRange(range)
       expect(normalized, `${name}: "${range}" is not a range at all`).not.toBeNull()
       expect(normalized, `${name}: "${range}" carries a ceiling; a DSH upgrade would skip the whole bundle again`).not.toContain('<')
-      expect(semver.satisfies('0.2.0', range, { includePrerelease: true }), `${name}: "${range}" must admit the final 0.2.0`).toBe(true)
-      expect(semver.satisfies('0.2.0-rc.1', range, { includePrerelease: true }), `${name}: "${range}" must admit the running prerelease`).toBe(true)
+      expect(admits(range, '0.2.0'), `${name}: "${range}" must admit the final 0.2.0`).toBe(true)
+      expect(admits(range, '0.2.0-rc.1'), `${name}: "${range}" must admit the running prerelease`).toBe(true)
     }
+  })
+})
+
+describe('the DSH boot gate — 0.2.1+ engines generation', () => {
+  it('declares engines.dsh as a string, so the gate can decide on it', () => {
+    expect(typeof MANIFEST.engines?.dsh).toBe('string')
+    expect(MANIFEST.engines?.dsh).not.toBe('')
+  })
+
+  it('admits every runtime through engines.dsh', () => {
+    for (const runtime of RUNTIMES) {
+      expect(unmetRequirementsOf(MANIFEST, runtime), `engines.dsh would skip the bundle on dsh ${runtime}`).toBeUndefined()
+    }
+  })
+
+  it('ignores peer ranges once engines.dsh is present (the 0.2.1 semantics)', () => {
+    // The exact trap the new gate introduces: a manifest that carries a perfect
+    // engines.dsh floor plus a leftover ceiling peer still loads, because peers
+    // are not read at all. That is why engines.dsh itself must stay a floor.
+    const manifest: GatedManifest = {
+      engines: { dsh: '>=0.1.7-alpha.1' },
+      peerDependencies: { '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.8 <0.2.0-0' },
+    }
+    expect(unmetRequirementsOf(manifest, '0.2.1-rc.2')).toBeUndefined()
+  })
+
+  it('would catch an engines.dsh ceiling, which now blocks loading by itself', () => {
+    const ceiling: GatedManifest = {
+      engines: { dsh: '>=0.1.7-alpha.1 <0.3.0-0' },
+      peerDependencies: MANIFEST.peerDependencies,
+    }
+    expect(unmetRequirementsOf(ceiling, '0.3.0-rc.1')).toEqual({ 'engines.dsh': '>=0.1.7-alpha.1 <0.3.0-0' })
+  })
+
+  it('writes engines.dsh as a pure lower bound', () => {
+    const range = MANIFEST.engines?.dsh ?? ''
+    const normalized = semver.validRange(range)
+    expect(normalized).not.toBeNull()
+    expect(normalized).not.toContain('<')
+    expect(admits(range, '0.2.1-rc.2')).toBe(true)
+    expect(admits(range, '0.3.0-rc.1')).toBe(true)
   })
 
   it.skipIf(!existsSync(DSH_APP_BOOT_MANIFEST))(
     'loads on the DSH checkout this machine runs, read from its own boot manifest',
     () => {
       const boot = JSON.parse(readFileSync(DSH_APP_BOOT_MANIFEST, 'utf8')) as { version: string }
-      expect(gatedPeersOf(boot.version), `the checkout at ${DSH_SOURCE_ROOT} runs dsh ${boot.version}`).toBeUndefined()
+      expect(unmetRequirementsOf(MANIFEST, boot.version), `the checkout at ${DSH_SOURCE_ROOT} runs dsh ${boot.version}`).toBeUndefined()
     },
   )
+})
+
+describe('manifest consistency across both channels', () => {
+  it('keeps the plugin-registry manifest on the package version', () => {
+    expect(PLUGIN_MANIFEST.version).toBe(MANIFEST.version)
+  })
+
+  it('keeps the plugin-registry engines.dsh identical to package.json', () => {
+    expect(PLUGIN_MANIFEST.engines?.dsh).toBe(MANIFEST.engines?.dsh)
+  })
 })
 
 describe('the @deepseek-ai type stubs', () => {

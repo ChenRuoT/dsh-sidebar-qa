@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { SidebarqaHistoryEntry, SidebarqaHistoryRecord } from '../src/context-types.ts'
+import type { Context, SidebarqaFollowFrame, SidebarqaHistoryEntry, SidebarqaHistoryRecord } from '../src/context-types.ts'
 import {
   eventsOfRecords,
+  followSession,
   mergeEntries,
   mintRequestId,
   modelSelectionOfProjection,
@@ -122,5 +123,73 @@ describe('modelSelectionOfProjection', () => {
     expect(modelSelectionOfProjection('deepseek')).toBeNull()
     expect(modelSelectionOfProjection({ next: null, lastUsed: null })).toBeNull()
     expect(modelSelectionOfProjection({ next: { provider: 'p' } })).toBeNull()
+  })
+})
+
+describe('followSession', () => {
+  it('opts into the live stream and forwards every frame kind', async () => {
+    const requests: unknown[] = []
+    const frames: SidebarqaFollowFrame[] = [
+      {
+        type: 'snapshot',
+        cursor: 12,
+        hasMore: true,
+        assistantStream: {
+          revision: 3,
+          activeAttempt: {
+            attemptId: 'a',
+            startedAfterSeq: 10,
+            turn: 0,
+            step: 0,
+            nextIndex: 1,
+            stream: [{ type: 'text-chunks', time0: 0, index: 0, dt: [0], texts: ['hi'] }],
+          },
+        },
+        records: [{ type: 'event', event: { type: 'user/message', seq: 9, time: 0, data: {} } }],
+      },
+      { type: 'event', event: { type: 'assistant/message', seq: 12, time: 0, data: {} } },
+      {
+        type: 'assistant-stream',
+        frame: { type: 'chunk', attemptId: 'a', revision: 4, index: 0, time: 1, chunk: { type: 'text-delta', text: 'hi' } },
+      },
+      {
+        type: 'assistant-stream',
+        frame: { type: 'end', attemptId: 'a', revision: 5, index: 1, outcome: { kind: 'abandoned' } },
+      },
+    ]
+    const ctx = {
+      remote: {
+        session: {
+          follow: (request: unknown) => {
+            requests.push(request)
+            return (async function* generate() {
+              for (const frame of frames) yield frame
+            })()
+          },
+        },
+      },
+    } as unknown as Context
+
+    const seen: string[] = []
+    await new Promise<void>((resolve) => {
+      followSession(ctx, 's1', {
+        snapshot: (input) => {
+          seen.push(`snapshot:${String(input.cursor)}:${String(input.assistantStream?.revision)}`)
+        },
+        append: (item) => { seen.push(`event:${String(item.event.seq)}`) },
+        assistantStream: (frame) => {
+          seen.push(`frame:${frame.type}`)
+          if (frame.type === 'end') resolve()
+        },
+      })
+    })
+
+    // The request opts in — without this flag DSH 0.2.x sends no live frames.
+    expect(requests).toEqual([{
+      address: { kind: 'session', sessionId: 's1' },
+      maxMessages: 60,
+      assistantStream: true,
+    }])
+    expect(seen).toEqual(['snapshot:12:3', 'event:12', 'frame:chunk', 'frame:end'])
   })
 })

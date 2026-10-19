@@ -45,6 +45,18 @@ export interface SidebarqaWebRoute {
 /** The webServer service face this plugin uses. */
 export interface SidebarqaWebServer {
   register(route: SidebarqaWebRoute): () => void
+  /**
+   * The configured bind address (one concrete local interface); read for the
+   * /api fence's bind-address rule. Optional so a host that does not expose the
+   * getter degrades to loopback/trusted-host matching instead of throwing.
+   * Upstream: `packages/host/webserver/src/index.ts:331-334`.
+   */
+  readonly host?: string
+  /**
+   * The protocol the listener speaks (`https:` when TLS is configured).
+   * Upstream: `packages/host/webserver/src/index.ts:336-343`.
+   */
+  readonly protocol?: 'http:' | 'https:'
 }
 
 /** Minimal structural mirror of one session surface event (readSurface output). */
@@ -448,9 +460,70 @@ export interface SidebarqaSessionAddress {
 export type SidebarqaHistoryRecord = { type: 'event'; event: SidebarqaSessionEvent }
 
 /**
+ * One LIVE assistant presentation frame (mirror of `SessionAssistantStreamFrame`).
+ *
+ * Upstream: `packages/api/session-controller/src/types.ts:527-561`. These frames
+ * are process-local and only delivered when the caller opts in with
+ * `follow({ assistantStream: true })`; they are what makes the panel stream
+ * before the durable `assistant/message` lands. `chunk` follows the LLM
+ * `StreamChunk` vocabulary (`text-delta` is the one the transcript folds).
+ */
+export type SidebarqaAssistantStreamFrame =
+  | {
+    readonly type: 'start'
+    readonly attemptId: string
+    readonly revision: number
+    readonly startedAfterSeq: number
+    readonly turn: number
+    readonly step: number
+  }
+  | {
+    readonly type: 'chunk'
+    readonly attemptId: string
+    readonly revision: number
+    readonly index: number
+    readonly time: number
+    readonly chunk: unknown
+  }
+  | {
+    readonly type: 'end'
+    readonly attemptId: string
+    readonly revision: number
+    readonly index: number
+    readonly outcome:
+      | { readonly kind: 'committed'; readonly eventType: 'assistant/message' | 'assistant/attempt'; readonly seq: number }
+      | { readonly kind: 'abandoned' }
+  }
+
+/**
+ * One active attempt in a reconnect opening snapshot (mirror of
+ * `SessionAssistantStreamBaseline`): the compact stream accumulated so far, so
+ * a reopened follow can redraw the in-flight answer instead of a blank row.
+ */
+export interface SidebarqaAssistantStreamAttempt {
+  readonly attemptId: string
+  readonly startedAfterSeq: number
+  readonly turn: number
+  readonly step: number
+  readonly nextIndex: number
+  /** Compact `AssistantStreamRecord[]` (text-chunks / raw chunks). */
+  readonly stream: readonly unknown[]
+}
+
+/**
+ * Complete process-local assistant state at one follow opening.
+ * Upstream: `packages/api/session-controller/src/types.ts:524-528`.
+ */
+export interface SidebarqaAssistantStreamBaseline {
+  readonly revision: number
+  readonly activeAttempt?: SidebarqaAssistantStreamAttempt
+}
+
+/**
  * One frame of an addressed session's live journal: the complete opening
  * window (whose `cursor` is the inclusive log cut every later `page` call must
- * quote), then every event appended after it.
+ * quote), then every event appended after it, then — when requested — the live
+ * assistant presentation frames.
  */
 export type SidebarqaFollowFrame =
   | {
@@ -458,16 +531,11 @@ export type SidebarqaFollowFrame =
     cursor: number
     records: readonly SidebarqaHistoryRecord[]
     hasMore: boolean
+    /** Present only when the caller asked for `assistantStream: true`. */
+    assistantStream?: SidebarqaAssistantStreamBaseline
   }
   | { type: 'event'; event: SidebarqaSessionEvent }
-  /**
-   * The LIVE assistant stream — upstream's third variant (`types.ts:527`), which
-   * carries a `SessionAssistantStreamFrame`. Declared so an arriving frame is
-   * recognized instead of crashing a `frame.event` read: this plugin's transcript
-   * is folded from the snapshot window and the scalar `event` frames, so the
-   * stream is deliberately ignored.
-   */
-  | { type: 'assistant-stream'; frame: unknown }
+  | { type: 'assistant-stream'; frame: SidebarqaAssistantStreamFrame }
 
 /** Complete model selection for one session. */
 export interface SidebarqaModelSelection {
@@ -601,7 +669,12 @@ export interface SidebarqaSessionRemote {
   ): Promise<SidebarqaRemoteResult<{ records: readonly SidebarqaHistoryRecord[]; hasMore: boolean }>>
   /** The addressed session's opening window followed by its live appends. */
   follow(
-    request: { address: SidebarqaSessionAddress; maxMessages?: number },
+    request: {
+      address: SidebarqaSessionAddress
+      maxMessages?: number
+      /** Opt into process-local assistant presentation frames (`types.ts:508`). */
+      assistantStream?: true
+    },
     signal?: AbortSignal,
   ): AsyncIterable<SidebarqaFollowFrame>
 }
@@ -879,13 +952,30 @@ export interface SidebarqaSidebarRightService {
 }
 
 /**
- * DSH's web-bundle runtime face (`webRuntime`, provided by
- * `@deepseek-ai/dsh-bundle-web-app`).
+ * DSH's web-bundle startup face (`webStartup`, provided by
+ * `@deepseek-ai/dsh-web-app`'s `web-startup` plugin).
  *
- * It carries the ALREADY-EVALUATED `trustedHosts` list — the very value the
- * connection row's `trustedHosts: !!js ctx.webRuntime.trustedHosts` expression
- * reads. See `trustedHostsOf` in `src/index.ts` for why reading the row's own
- * config instead is not merely useless but dangerous.
+ * It carries the ALREADY-EVALUATED invocation authorities (`--trusted-host` and
+ * deployments' patch values) — the value the connection row's
+ * `trustedHosts: !!js ctx.webStartup.trustedHosts` expression reads. This face
+ * replaced {@link SidebarqaWebRuntimeService} in DSH `0.2.1-alpha.1`; see
+ * `trustedHostsOf` in `src/index.ts` for why reading a row's own config instead
+ * is not merely useless but dangerous.
+ *
+ * Upstream: `packages/bundle/web-app/src/startup.ts:23-42`.
+ */
+export interface SidebarqaWebStartupService {
+  /** Explicit `--trusted-host` authorities, in argument order. */
+  trustedHosts?: unknown
+}
+
+/**
+ * DSH's former web-bundle runtime face (`webRuntime`).
+ *
+ * REMOVED in DSH `0.2.1-alpha.1` (the web-app bundle no longer mounts a
+ * `webRuntime` row). Kept only as a fallback while this package still declares
+ * `engines.dsh: >=0.1.7-alpha.1`; new hosts answer through
+ * {@link SidebarqaWebStartupService}.
  */
 export interface SidebarqaWebRuntimeService {
   /** Loopback/LAN authorities plus the deployment's `--trusted-host` extras. */
@@ -1004,9 +1094,15 @@ declare module 'cordis' {
     llm: SidebarqaLlmService
     loader: SidebarqaLoader
     /**
-     * The web bundle's runtime face. Client-agnostic and OPTIONAL: deployments
-     * that do not compose `@deepseek-ai/dsh-bundle-web-app` have no `webRuntime`,
-     * so it is read with `ctx.get` and every value is array-checked.
+     * The web bundle's startup face, present on DSH ≥ `0.2.1-alpha.1`. Read with
+     * `ctx.get` (it is provided by the web-startup row, not guaranteed by
+     * `engines`) and every value is array-checked.
+     */
+    webStartup: SidebarqaWebStartupService
+    /**
+     * The web bundle's FORMER runtime face. Client-agnostic and OPTIONAL, and
+     * REMOVED on DSH ≥ `0.2.1-alpha.1`: kept only as a fallback for the older
+     * hosts this package's `engines.dsh` floor still admits.
      */
     webRuntime: SidebarqaWebRuntimeService
     settings: SidebarqaSettingsService

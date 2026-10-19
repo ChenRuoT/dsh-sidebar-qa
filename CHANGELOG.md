@@ -2,6 +2,37 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.1] - 2026-10-19
+
+**修 DSH 0.2.1 平台上的两个 P0：`/sidebarqa/api` 信任围栏退化（LAN / `--trusted-host` 恒 403），以及追问面板不再流式、轮次失败没有任何提示。同时把类型桩升到 `0.2.1-rc.2`、装载闸测试改成「0.2.0 peer / 0.2.1+ engines」两代语义。**
+
+### Fixed
+
+- **信任围栏迁移到 `webStartup`**（**host 半改动，需重启 `dsh web` / 桌面应用**）：DSH `0.2.1-alpha.1` 删除了 `webRuntime` 服务；`src/index.ts` 仍只读它，回退读到 loader row 里未求值的 `!!js` 表达式，`Array.isArray` 判否后围栏静默退化为 loopback-only——`dsh web --host 10.0.0.7` 或 `--trusted-host app.example` 的浏览器访问 `/sidebarqa/api` **全部 403**（`config` / `context` / `title` / `catalog` 一起失效），且没有任何报错。
+  - `trustedHostsOf` 现在按 `webStartup.trustedHosts`（0.2.1+）→ `webRuntime.trustedHosts`（旧宿主）→ loader 的 `id: connection` 行字面量顺序读；**服务存在即以其值为准**（空列表表示 loopback-only，不再回退到别的来源）。
+  - 新增 `bindHostOf` / `bindProtocolOf`（读 `webServer.host` / `.protocol`），围栏按上游 `packages/client/connection/src/api-request-trust.ts` 接受**监听 bind IP**、按 http(s) 规范化默认端口、拒绝 cross-site 与不匹配的 Origin。
+  - `webServer` 镜像补 `host` / `protocol`，`webStartup` 镜像补上出处；`webRuntime` 保留为旧宿主回退。
+  - 回归：新增 `tests/trust-fence.spec.ts`（17 例）与 `tests/host-route.spec.ts`（9 例，用 fake host 驱动真实 `apply` 路由：webStartup 优先、bind IP、旧 face 回退、malformed 值不抛、403/200、Origin 与 cross-site）。
+- **追问恢复流式；失败轮次不再永久停在「生成中…」**（**client 半改动，浏览器硬刷新即可**）：DSH 0.2.x 的 agent loop 不再写持久化的 `assistant/chunk`——成功提交 `assistant/message`，失败/中断提交 `assistant/attempt`（含 compact `stream`），实时增量改为 opt-in 的 `follow({ assistantStream: true })`。插件原实现两者都没接，回答只在结束时整段出现，模型报错时面板没有任何提示。
+  - `followSession` 显式传 `assistantStream: true`，转发 `start` / `chunk` / `end` 帧与重连 snapshot 的 `assistantStream.activeAttempt`。
+  - `answer.ts` 新增 `foldAssistantStreamRecords` / `assistantAttemptOf` / `liveStreamOf` / `applyAssistantStreamFrame`，把文本增量、失败原因（`finish.reason.failure`）与旧格式 `assistant/chunk` 统一折叠；`assistant/attempt` 成为带 `failure` 的 transcript 行（保留已生成的部分文本）。
+  - `AskPanel` 维护 live 行：首 token 起逐段渲染，durable 事件落地后替换；失败轮次显示「本轮回答失败：<reason>」。`MarkdownText` 的 `labels` 仍按 locale memo。
+  - 新增文案键 `askTurnFailed`（zh/en）；回归：`tests/answer.spec.ts`（新增 9 例）、`tests/session-wire.spec.ts`（新增 follow 帧转发用例）。
+
+### Changed
+
+- **装载闸叙事与测试对齐 0.2.1 的新语义**：DSH `0.2.1-alpha.3+` 的 `evaluatePluginCompatibility` 只要 manifest 有 `engines.dsh` 就**只按它判**、完全忽略 peer（0.2.0 仍只看 peer）。`tests/dsh-compat.spec.ts` 重写为两代闸门（14 例）：两代区间都必须是纯下限、反向检测器覆盖「peer 天花板」与「engines 天花板」、`engines.dsh` 存在时忽略 peer、并新增 `package.json` ↔ `dsh.plugin.json` 的 version / `engines.dsh` 同步守卫。
+- README / README_EN / AGENTS / CLAUDE 修正：配置面板是 **8 个常用键**（schema 共 12 字段）；测试规模更新为 30 文件 / 443 用例；`engines.dsh` 不再是「DSH 不读」的纯声明；安装/升级补充 0.2.1-alpha.2+ 的 **remove → add** 规则；平台种子词与 `webStartup` 的出处同步。
+- `pnpm-workspace.yaml` 的 `peerDependencyRules.allowedVersions` 随桩的 cordis peer 从 `4.0.4` 升到 `4.0.5`（与该 checkout 的 vendored cordis 一致）。
+
+### Dependencies
+
+- 类型桩精确钉到 `0.2.1-rc.2`：`@deepseek-ai/dsh-client-locale`、`@deepseek-ai/dsh-client-ui-primitives`。
+- 构建期打包的 schema 库同步到宿主版本：`@deepseek-ai/schemastery@3.18.5`（精确钉，`noExternal` 打进 `lib/index.js`）。
+- **升级需重新 `pnpm install`。**
+
+> 部署提醒：host 半（信任围栏）需重启宿主；client 半（流式/失败行）只需硬刷新浏览器。桌面版请完全退出应用后重启 launcher。
+
 ## [1.2.0] - 2026-10-15
 
 **修 [issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21)「设置保存失败」：配置改为声明在插件自己的 `Config` schema 上、并按 profile 条目 id 寻址——DSH ≥ 0.1.7（含 0.2.x）上「追问」设置页从「只读默认值」变成可保存。**

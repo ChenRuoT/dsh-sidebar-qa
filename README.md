@@ -33,6 +33,14 @@
 
 ## 📦 更新记录
 
+### 1.2.1 - 2026-10-19
+
+**修 DSH 0.2.1 上的两个 P0：局域网 / `--trusted-host` 访问 `/sidebarqa/api` 恒 403；追问面板不再流式、失败轮次没有任何提示。**
+
+- **信任围栏迁移到 `webStartup`**（**host 半，需重启宿主**）：DSH `0.2.1-alpha.1` 删除了 `webRuntime` 服务，插件回退读到未求值的 `!!js` 表达式，围栏静默退化为 loopback-only。现按 `webStartup.trustedHosts` → 旧 `webRuntime` → loader 字面量读取，并像 DSH 自己的 `/api` 围栏一样接受**监听 bind IP**、按 http(s) 规范化默认端口。回归：`tests/trust-fence.spec.ts` + `tests/host-route.spec.ts`。
+- **恢复流式 + 轮次失败可见**（**client 半，硬刷新**）：0.2.x 不再写持久化 `assistant/chunk`，实时增量需要 `follow({ assistantStream: true })`；插件此前没接，回答只在结束时整段出现、报错时永久停在「生成中…」。现在逐段渲染 live 文本，失败/中断轮次显示「本轮回答失败：<原因>」（`assistant/attempt` 的 compact stream 也会折叠）。回归：`tests/answer.spec.ts` + `tests/session-wire.spec.ts`。
+- **类型桩升到 `0.2.1-rc.2`，装载闸测试改为两代语义**（0.2.0 读 peer、0.2.1-alpha.3+ 只读 `engines.dsh`），新增 `package.json` ↔ `dsh.plugin.json` 的 version / engines 同步守卫。**升级需重新 `pnpm install`。**
+
 ### 1.2.0 - 2026-10-15
 
 **修 [issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21)「设置保存失败」：配置改为声明在插件自己的 `Config` schema 上、并按 profile 条目 id 寻址，DSH ≥ 0.1.7（含 0.2.x）上「追问」设置页从「只读默认值」变成可保存。**
@@ -79,8 +87,8 @@
 
 - **侧边栏 tab 需要 DSH ≥ `0.1.5-alpha.1`**：原生右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`）从该版本起提供。
 - 探测是**运行期结构探测**（服务在不在），不是版本号比对：`sidebarRightTabs` / `sidebarRight` / `slots` 三件套齐备才注册。
-- `engines.dsh` 声明 `>=0.1.7-alpha.1`（如实反映设置接缝与图标改名两个世代），但 **DSH 完全不校验 `engines`**，所以它只是声明、不是闸门。
-- **真正的闸门是 `peerDependencies`（DSH ≥ 0.2.0）**：boot 对每个 `@deepseek-ai/dsh*` peer 区间跑 `semver.satisfies(运行时, 区间, { includePrerelease: true })`，任一不满足就**跳过整个 bundle patch 层**（插件不加载，只在 stderr 留一行）。本插件因此把所有 gated peer 写成**纯下限**（无 `<` 天花板）——`^0.1.0-rc.8` 这种带预发布的 caret 展开成 `>=0.1.0-rc.8 <0.2.0-0`，会在 0.2.0 上把插件整层挡掉（1.1.0 修的正是它）。回归：`tests/dsh-compat.spec.ts`。
+- `engines.dsh` 声明 `>=0.1.7-alpha.1`（如实反映设置接缝与图标改名两个世代）。
+- **装载闸有两代，写法不同**：DSH `0.2.0` 校验的是 `peerDependencies` 里的每个 `@deepseek-ai/dsh*` 区间；DSH `0.2.1-alpha.3+` 改为**只看 `engines.dsh`**——只要有这个字段，peer 就完全不读。两代都用 `semver.satisfies(运行时, 区间, { includePrerelease: true })`，任一不满足就**跳过整个 bundle patch 层**（插件不加载，只在 stderr 留一行）。本插件因此把**两种区间都写成纯下限**（无 `<` 天花板）：`^0.1.0-rc.8` 这种带预发布的 caret 展开成 `>=0.1.0-rc.8 <0.2.0-0`，在 0.2.x 上会把插件整层挡掉（1.1.0 修的正是它）。回归：`tests/dsh-compat.spec.ts`（两代闸门都复刻，并校验 `package.json` / `dsh.plugin.json` 的 `engines.dsh` 同步）。
 - **设置项在 ≥ `0.1.7-alpha.1` 的宿主上按「插件自有 `Config` + profile 条目 id」持久化**：可编辑字段来自本插件导出的 `Config` schema（12 个字段全部 `volatile()`），写入经 DSH 的 settings 服务落到插件自己的 profile 行（`cordis.patch.yml` 里 `id: sidebar-qa` 的 `config:`），插件读的是运行期就地更新的活引用（不重挂）；1.2.0 起**设置页可直接保存**。老宿主（`dsh-settings` ≤ `0.1.6`，仍提供命名空间注册）走原来的 `sidebarqa` 命名空间，行为不变；两种形态由接缝**结构探测**互斥选择，都不会写错地方（[issue #21](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/21) / [issue #19](https://github.com/ChenRuoT/dsh-sidebar-qa/issues/19)）。
 
 ## 安装
@@ -94,6 +102,8 @@ dsh plugin --profile web add <本仓库路径>
 ```
 
 重启 `dsh web`（host 半改动需要重启；client 改动浏览器硬刷新即可）。
+
+> DSH `0.2.1-alpha.2+` 的 profile **不允许覆盖安装**：升级时先 `dsh plugin --profile web remove dsh-sidebar-qa`，再 `add` 新版本。桌面版请在**完全退出应用**后执行 CLI，或直接用应用内 Plugins 页；桌面 profile 是 `--profile desktop`。
 
 ## 使用
 
@@ -178,7 +188,7 @@ dsh-sidebar-qa (bundle: dsh.bundle + package.json#dsh.client)
     ├── orchestrate.ts      create → 占位 rename → selectModel(默认 flash/关思考) → prompt + 继续追问 + 回答后重命名
     ├── settings-slot.ts      把配置面板注册成 DSH 设置页的一个 section（探测 + 重试，纯模块，可测）
     ├── settings-section.tsx  设置页「追问」页面：标题 + 说明 + ConfigPanel
-    ├── ConfigPanel.tsx       功能配置面板（逐项编辑 12 个配置键；由设置页的 settings.section 渲染）
+    ├── ConfigPanel.tsx       功能配置面板（逐项编辑 8 个常用键；`Config` schema 共 12 字段；由设置页的 settings.section 渲染）
     ├── config-fields.ts      配置面板行声明 + 数字钳制 + catalog 选项解析（纯函数，可测）
     ├── store.ts            父→子 映射（localStorage 持久化，支持嵌套）+ 待提问引文 + 已命名标记
     ├── injection.ts        XML 转义/消毒 + 注入格式 + 占位主题生成
@@ -248,7 +258,7 @@ ctx.sidebarRight.openTab('history')
 ```bash
 pnpm install
 pnpm build      # tsc 声明 + tsdown（lib/index.js + lib/client.js + lib/client-registry.js）
-pnpm test       # vitest 单测（answer / ask-mode / config / config-fields / context-meter / current-session / draft-insert / history-scope / history-time / injection / locales / model-menu / model-seat / prompt-locale / quote-draft / session-wire / settings-section / sidebar-native / store / summarize / title）
+pnpm test       # vitest 单测（30 个 spec / 443 用例；纯模块 + sidebar-native / settings-slot / panel-boundary / primitives / panel-icons / dsh-compat / markdown-labels / trust-fence / host-route）
 pnpm typecheck
 ```
 

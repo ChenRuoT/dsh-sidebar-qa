@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest'
 import type { SidebarqaHistoryEntry } from '../src/context-types.ts'
 import {
   answerTextOf,
+  applyAssistantStreamFrame,
+  assistantAttemptOf,
+  failureOfStreamChunk,
+  foldAssistantStreamRecords,
   hasSeedHistory,
   hasTurnEnded,
   lastEndSeedIndex,
+  liveStreamOf,
   textOfAssistantMessage,
+  textOfStreamChunk,
   textOfUserMessage,
   transcriptOf,
   transcriptRowsOf,
@@ -207,5 +213,116 @@ describe('hasTurnEnded', () => {
   it('detects a finished turn', () => {
     expect(hasTurnEnded([entry('turn/end', { turn: 0, reason: { kind: 'completed' } })])).toBe(true)
     expect(hasTurnEnded([entry('assistant/message', {})])).toBe(false)
+  })
+})
+
+describe('textOfStreamChunk / failureOfStreamChunk', () => {
+  it('folds only text deltas', () => {
+    expect(textOfStreamChunk({ type: 'text-delta', index: 0, text: 'hello' })).toBe('hello')
+    expect(textOfStreamChunk({ type: 'reasoning-delta', text: 'why' })).toBe('')
+    expect(textOfStreamChunk(undefined)).toBe('')
+    expect(textOfStreamChunk('text')).toBe('')
+  })
+
+  it('reads the failure of a terminal finish chunk, but not of a normal stop', () => {
+    expect(failureOfStreamChunk({
+      type: 'finish',
+      reason: { kind: 'error', failure: { message: 'provider exploded', code: 'llm/error' } },
+    })).toBe('provider exploded')
+    expect(failureOfStreamChunk({
+      type: 'finish',
+      reason: { kind: 'aborted', failure: { message: 'stopped' } },
+    })).toBe('stopped')
+    expect(failureOfStreamChunk({ type: 'finish', reason: { kind: 'stop' } })).toBeUndefined()
+    expect(failureOfStreamChunk({ type: 'text-delta', text: 'x' })).toBeUndefined()
+    expect(failureOfStreamChunk(null)).toBeUndefined()
+  })
+})
+
+describe('foldAssistantStreamRecords', () => {
+  it('folds packed text runs and raw text-delta chunks together', () => {
+    const folded = foldAssistantStreamRecords([
+      { type: 'text-chunks', time0: 1, index: 0, dt: [0, 1], texts: ['he', 'llo'] },
+      { type: 'reasoning-chunks', time0: 1, index: 0, dt: [0], texts: ['ignored'] },
+      { type: 'chunk', time: 3, chunk: { type: 'text-delta', index: 0, text: ' world' } },
+    ])
+    expect(folded).toEqual({ text: 'hello world' })
+  })
+
+  it('carries the finish failure of a failed attempt', () => {
+    const folded = foldAssistantStreamRecords([
+      { type: 'text-chunks', time0: 1, index: 0, dt: [0], texts: ['partial'] },
+      { type: 'chunk', time: 2, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'boom' } } } },
+    ])
+    expect(folded).toEqual({ text: 'partial', failure: 'boom' })
+  })
+
+  it('is empty-safe for malformed input', () => {
+    expect(foldAssistantStreamRecords(undefined)).toEqual({ text: '' })
+    expect(foldAssistantStreamRecords([null, 'x', { type: 'text-chunks', texts: [1, 'ok'] }]))
+      .toEqual({ text: 'ok' })
+  })
+})
+
+describe('assistant/attempt events', () => {
+  it('becomes a failed assistant row with the partial text', () => {
+    const events = [
+      entry('user/message', { content: [{ type: 'text', text: '问题' }] }, 1),
+      entry('assistant/attempt', {
+        turn: 0,
+        step: 0,
+        stream: [
+          { type: 'text-chunks', time0: 1, index: 0, dt: [0], texts: ['半截回答'] },
+          { type: 'chunk', time: 2, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'boom' } } } },
+        ],
+      }, 2),
+    ]
+    expect(transcriptRowsOf(events)).toEqual([
+      { role: 'user', text: '问题', seq: 1 },
+      { role: 'assistant', text: '半截回答', seq: 2, failure: 'boom' },
+    ])
+    expect(transcriptOf(events)).toEqual([
+      { role: 'user', text: '问题' },
+      { role: 'assistant', text: '半截回答', failure: 'boom' },
+    ])
+  })
+
+  it('is ignored when it carries neither text nor failure', () => {
+    expect(assistantAttemptOf(entry('assistant/attempt', { stream: [] }, 5).event)).toEqual({ text: '' })
+    expect(transcriptOf([entry('assistant/attempt', { stream: [] }, 5)])).toEqual([])
+  })
+
+  it('makes answerTextOf omit failed rows (title input stays clean)', () => {
+    const events = [
+      entry('assistant/message', { message: { content: [{ type: 'text', text: '成功' }] } }, 1),
+      entry('assistant/attempt', { stream: [{ type: 'chunk', chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'x' } } } }] }, 2),
+    ]
+    expect(answerTextOf(events)).toBe('成功')
+  })
+})
+
+describe('live assistant frames', () => {
+  it('starts empty, appends text deltas, and records a failure', () => {
+    let state = applyAssistantStreamFrame(null, { type: 'start', attemptId: 'a', revision: 1, startedAfterSeq: 10, turn: 0, step: 0 })
+    expect(state).toEqual({ startedAfterSeq: 10, text: '' })
+    state = applyAssistantStreamFrame(state, { type: 'chunk', attemptId: 'a', revision: 2, index: 0, time: 1, chunk: { type: 'text-delta', text: '你' } })
+    state = applyAssistantStreamFrame(state, { type: 'chunk', attemptId: 'a', revision: 3, index: 1, time: 2, chunk: { type: 'text-delta', text: '好' } })
+    expect(state).toEqual({ startedAfterSeq: 10, text: '你好' })
+    state = applyAssistantStreamFrame(state, { type: 'chunk', attemptId: 'a', revision: 4, index: 2, time: 3, chunk: { type: 'finish', reason: { kind: 'error', failure: { message: 'boom' } } } })
+    expect(state).toEqual({ startedAfterSeq: 10, text: '你好', failure: 'boom' })
+  })
+
+  it('keeps a committed attempt for the durable settlement, and clears an abandoned one', () => {
+    const state = { startedAfterSeq: 10, text: 'x' }
+    expect(applyAssistantStreamFrame(state, { type: 'end', attemptId: 'a', revision: 5, index: 1, outcome: { kind: 'committed', eventType: 'assistant/message', seq: 11 } })).toBe(state)
+    expect(applyAssistantStreamFrame(state, { type: 'end', attemptId: 'a', revision: 5, index: 1, outcome: { kind: 'abandoned' } })).toBeNull()
+  })
+
+  it('rebuilds the in-flight row from a reconnect baseline', () => {
+    expect(liveStreamOf(undefined)).toBeNull()
+    expect(liveStreamOf({ revision: 3, activeAttempt: {
+      attemptId: 'a', startedAfterSeq: 7, turn: 0, step: 0, nextIndex: 2,
+      stream: [{ type: 'text-chunks', time0: 0, index: 0, dt: [0], texts: ['partial'] }],
+    } })).toEqual({ startedAfterSeq: 7, text: 'partial' })
   })
 })

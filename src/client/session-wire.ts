@@ -21,6 +21,8 @@
  */
 import type {
   Context,
+  SidebarqaAssistantStreamBaseline,
+  SidebarqaAssistantStreamFrame,
   SidebarqaHistoryEntry,
   SidebarqaHistoryRecord,
   SidebarqaModelSelection,
@@ -170,15 +172,33 @@ export function currentModelOf(ctx: Context, sessionId: string): SidebarqaModelS
 /** Sinks one followed transcript publishes into. */
 export interface FollowSinks {
   /** The complete opening window; `cursor` pins every later page read. */
-  snapshot(input: { entries: SidebarqaHistoryEntry[]; cursor: number; hasMore: boolean }): void
+  snapshot(input: {
+    entries: SidebarqaHistoryEntry[]
+    cursor: number
+    hasMore: boolean
+    /** Active live attempt accumulated before the reopen (when opted in). */
+    assistantStream?: SidebarqaAssistantStreamBaseline
+  }): void
   /** One event appended after the opening window. */
   append(entry: SidebarqaHistoryEntry): void
+  /**
+   * One live assistant presentation frame (start/chunk/end). Present only when
+   * the host opted in via `assistantStream: true`; a panel that ignores it still
+   * gets the durable message/attempt event at the end.
+   */
+  assistantStream?(frame: SidebarqaAssistantStreamFrame): void
 }
 
 /**
  * Follow one session's journal until the returned disposer is called: the
- * opening window lands on `snapshot`, every later append on `append`. This is
- * what replaced the 1.2s history poll — the transcript now streams.
+ * opening window lands on `snapshot`, every later event on `append`, and —
+ * because this opts into `assistantStream: true` — the running answer's live
+ * deltas on `assistantStream`.
+ *
+ * DSH 0.2.x stopped writing durable `assistant/chunk` events: a turn only lands
+ * in the log when it settles (`assistant/message`, or `assistant/attempt` on a
+ * failure/abort). Without the live frames the panel would show nothing until the
+ * turn completes — and a failed turn would show nothing at all.
  *
  * Failures are swallowed (the panel keeps the transcript it has): a follow is
  * a view, never a step of the ask.
@@ -195,7 +215,7 @@ export function followSession(
   void (async () => {
     try {
       const frames = ctx.remote.session.follow(
-        { address: sessionAddress(sessionId), maxMessages },
+        { address: sessionAddress(sessionId), maxMessages, assistantStream: true },
         controller.signal,
       )
       for await (const frame of frames) {
@@ -205,15 +225,13 @@ export function followSession(
             entries: eventsOfRecords(frame.records),
             cursor: frame.cursor,
             hasMore: frame.hasMore,
+            ...frame.assistantStream === undefined ? {} : { assistantStream: frame.assistantStream },
           })
         } else if (frame.type === 'event') {
           sinks.append({ event: frame.event })
+        } else if (frame.type === 'assistant-stream') {
+          sinks.assistantStream?.(frame.frame)
         }
-        // Upstream's third frame is `assistant-stream`, the LIVE model stream.
-        // This transcript is folded from the snapshot window and the scalar
-        // `event` appends, so it is deliberately not consumed — the branch exists
-        // so such a frame is recognized rather than read as `frame.event`, which
-        // would be a TypeError the moment upstream starts sending it.
       }
     } catch {
       // A dropped follow leaves the last known transcript on screen; the next
