@@ -1,42 +1,9 @@
 /**
- * The capability probe for DSH's settings seam — the ONLY place that decides
- * which settings API shape this host offers.
- *
- * The seam changed under us without a rename: `dsh-settings@0.1.5-rc.2` (npm
- * `latest`) ships `SettingsProvider` with a public
- * `register(ns, schema, options)`; from `dsh-settings@0.1.7-alpha.1` the service
- * is `SettingsForms`, which has **no `register`** at all — a plugin's editable
- * fields are derived from its own exported `Config` schema (fields marked
- * volatile), and `describe` / `update` address **profile entry ids** rather than
- * a plugin-declared namespace. There is no compatibility entry point, so an
- * unguarded `register` call on a 0.1.7 host throws a `TypeError` on EVERY launch
- * (issue #19) — caught by the caller, so it degraded instead of crashing, but it
- * logged a failure line and left the namespace unregistered.
- *
- * Probe by STRUCTURE, never by version — the same rule the client half follows
- * for `sidebarRightTabs` / `slots` / `uiWorkspace`. `typeof … === 'function'`
- * covers both shapes, and it stays honest on a host that keeps the service name
- * while dropping a method (the failure mode a version comparison would miss).
- *
- * When `register` is absent this returns a typed refusal rather than throwing:
- * the caller logs one informational line, the plugin keeps running on
- * {@link SIDEBARQA_DEFAULTS}, and the config routes answer with an accurate
- * refusal instead of a bogus one.
- *
- * A future migration that keeps the settings page alive on 0.1.7+ (declare a
- * volatile `Config`, then address the form by entry id) would land here; the
- * guard is what makes that additive instead of a behavior cliff.
- *
- * ── That migration has landed (issue #21) ────────────────────────────────
- * When `register` is absent the probe now opens the SAME revision-guarded face
- * against the plugin's own PROFILE ENTRY ID instead of a declared namespace:
- * `dsh-settings` ≥ 0.1.7 derives a form from the plugin's `Config` schema
- * (`volatileForm`, i.e. every field this plugin declares volatile) and
- * addresses it by the loader row id, so `describe`/`update` take that id where
- * they used to take `sidebarqa`. The id is passed in by the caller, which is
- * the only place that can know it (`ctx.fiber.entry.options.id`). A host whose
- * `register` exists keeps the legacy namespace path bit for bit — the two
- * shapes never mix, because they store the config in different places.
+ * Settings capability selection (issues #19, #21, #23).
+ * SettingsForms exposes configure + describe/update, addresses profile entry
+ * ids, and reads the plugin's volatile Config. Prefer that contract even when
+ * a host also retains legacy register(). The legacy namespace provider remains
+ * the fallback. Never decide from the DSH version or register() alone.
  */
 import type { SidebarqaSettingsScope, SidebarqaSettingsService } from './context-types.ts'
 import { unwrapVolatile } from './live-config.ts'
@@ -144,10 +111,12 @@ function faceOf(service: Partial<SidebarqaSettingsService>, ns: string): Sidebar
  * Probe the settings service and, when it can carry this plugin's config, open
  * the matching face.
  *
- * Two host shapes, one result type:
- * - a host with namespace registration (`dsh-settings` ≤ 0.1.6): the legacy
+ * Capability precedence:
+ * - a host with the instance form policy API: entry-addressed forms, even
+ *   if it also exposes legacy registration.
+ * - otherwise a host with namespace registration: the legacy
  *   `register(ns, schema)` path, which also yields the read scope.
- * - a host without it (`dsh-settings` ≥ 0.1.7): the SAME `describe`/`update`
+ * - a host without registration: the SAME `describe`/`update`
  *   face addressed by the plugin's profile ENTRY ID (`entryId`). The caller owns
  *   the read source in that mode — the live `Config` refs, not a namespace — so
  *   no scope is returned.
@@ -169,6 +138,16 @@ export function openSettingsSeam<T>(
 ): SidebarqaSettingsSeam<T> {
   if (service === null || service === undefined) return { ok: false, reason: 'service-missing' }
   const probe = service as Partial<SidebarqaSettingsService>
+  // `register` can survive as a compatibility shim on a forms host (#23).
+  // configure() is the instance policy API introduced with SettingsForms;
+  // prefer that entry-addressed contract even when legacy registration exists.
+  // Do not require describe() to list our row yet: the loader may still be
+  // activating this fiber when its settings child mounts.
+  const hasForm = typeof probe.describe === 'function' && typeof probe.update === 'function'
+  if (hasForm && typeof probe.configure === 'function') {
+    if (entryId === undefined || entryId === '') return { ok: false, reason: 'no-entry' }
+    return { ok: true, kind: 'entry', face: faceOf(probe, entryId) }
+  }
   if (typeof probe.register === 'function') {
     try {
       const scope = probe.register<T>(ns, schema)

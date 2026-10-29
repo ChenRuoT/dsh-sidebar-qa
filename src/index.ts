@@ -57,6 +57,7 @@ import {
   titleSystem,
 } from './title.ts'
 import { promptLocaleOf } from './prompt-locale.ts'
+import { catalogModelId } from './model-compat.ts'
 import type {
   SidebarqaCatalog,
   SidebarqaLlmMessage,
@@ -238,8 +239,22 @@ function buildApi(
   getConfigFace: () => SidebarqaConfigFace | undefined,
   getRefusal: () => SidebarqaSettingsSeamReason | undefined,
 ): Record<string, ApiMethod> {
+  // Resolve at use time: provider catalogs may load/change after apply().
+  // Stored config and config.get remain untouched; config is the effective
+  // answer selection consumed by the panel and the ask orchestrator.
+  const modelId = async (provider: string, model: string): Promise<string> => {
+    if (model !== 'deepseek-v4-flash' && model !== 'deepseek-flash') return model
+    try {
+      return catalogModelId(model, await ctx.llm.listModels(provider))
+    } catch {
+      return model
+    }
+  }
   return {
-    config: (): SidebarqaConfig => getConfig(),
+    config: async (): Promise<SidebarqaConfig> => {
+      const config = getConfig()
+      return { ...config, answerModel: await modelId(config.answerProvider, config.answerModel) }
+    },
     catalog: async (): Promise<SidebarqaCatalog> => {
       const providers = ctx.llm.listProviders().map(async (provider) => {
         let models: readonly SidebarqaLlmModel[] = []
@@ -358,7 +373,7 @@ function buildApi(
         try {
           const chunks = ctx.llm.stream({
             provider,
-            model,
+            model: await modelId(provider, model),
             messages: [userMessage(earlierText)],
             system: backgroundSystem(locale),
             maxTokens: budgetTokens,
@@ -401,7 +416,7 @@ function buildApi(
       try {
         const chunks = ctx.llm.stream({
           provider,
-          model,
+          model: await modelId(provider, model),
           messages: [userMessage(boundTitleInput(text))],
           system: titleSystem(locale),
           maxTokens: budgetTokens,
@@ -521,10 +536,9 @@ export function apply(ctx: Context, config?: SidebarqaLiveConfig): void {
   let settingsRefusal: SidebarqaSettingsSeamReason | undefined
 
   // The seam is OPTIONAL and its SHAPE is not stable across hosts:
-  // `dsh-settings` ≤ 0.1.6 registers plugin-declared namespaces, ≥ 0.1.7 has no
-  // registration at all and derives editable fields from the plugin's own
-  // `Config` (addressed by profile entry id). So it is probed by STRUCTURE,
-  // never by version, and every refusal degrades: the summarize route still
+  // Legacy hosts register namespaces; forms hosts derive editable fields from
+  // the plugin's own `Config` (addressed by profile entry id). Probe STRUCTURE,
+  // never the version or register() alone. Every refusal degrades: the route
   // answers on the live config or on SIDEBARQA_DEFAULTS. A refusal must never
   // disable the plugin. Both shapes end at the same revision-guarded face —
   // only the addressed key differs — so the webview panel persists edits either

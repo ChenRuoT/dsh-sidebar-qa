@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
+import { SIDEBARQA_DEFAULTS, type SidebarqaLiveConfig } from '../src/config.ts'
 import type { Context } from '../src/context-types.ts'
 
 /**
@@ -20,13 +21,13 @@ interface FakeResponse {
   end(body: string): void
 }
 
-function fakeRequest(headers: Record<string, string>): unknown {
+function fakeRequest(headers: Record<string, string>, method = 'config', payload: object = {}): unknown {
   return {
     method: 'POST',
-    url: '/sidebarqa/api/config',
+    url: `/sidebarqa/api/${method}`,
     headers,
     async *[Symbol.asyncIterator]() {
-      yield Buffer.from('{}')
+      yield Buffer.from(JSON.stringify(payload))
     },
   }
 }
@@ -46,10 +47,68 @@ interface HostFaces {
   loaderEntries?: { options: { id: string; name: string; config?: { trustedHosts?: unknown } } }[]
   host?: string
   protocol?: 'http:' | 'https:'
+  settings?: unknown
+  config?: SidebarqaLiveConfig
+  llm?: unknown
+  sessionQuery?: unknown
 }
 
+describe('issue #23 config read/write and effective model', () => {
+  const headers = { host: '127.0.0.1' }
+
+  it('uses entry config with a hybrid service, saves live values and refuses stale writes', async () => {
+    let value = { ...SIDEBARQA_DEFAULTS, answerModel: 'custom', trimWindowMessages: 7 }
+    let revision = 0
+    const config = Object.fromEntries(Object.keys(value).map(key => [key, {
+      get: () => value[key as keyof typeof value],
+    }])) as SidebarqaLiveConfig
+    const register = vi.fn(() => { throw new Error('legacy namespace must not be opened') })
+    const call = mount({ config, settings: {
+      register,
+      configure: () => () => {},
+      describe: () => [{ ns: 'sidebar-qa', value, revision }],
+      update: async (id: string, patch: object, expected: number) => {
+        expect(id).toBe('sidebar-qa')
+        if (expected !== revision) throw Object.assign(new Error('stale'), { code: 'SETTINGS_CONFLICT' })
+        value = { ...value, ...patch }
+        revision++
+      },
+    } })
+    const read = async (method = 'config') => JSON.parse((await call(headers, method)).body).value
+    expect(await read()).toMatchObject({ answerModel: 'custom', trimWindowMessages: 7 })
+    expect(await read('config.get')).toMatchObject({ value, revision: 0 })
+    const saved = await call(headers, 'config.update', { patch: { trimWindowMessages: 19 }, expectedRevision: 0 })
+    expect(saved.statusCode).toBe(200)
+    expect(JSON.parse(saved.body).value).toMatchObject({ value: { trimWindowMessages: 19 }, revision: 1 })
+    expect(await read()).toMatchObject({ trimWindowMessages: 19 })
+    expect((await call(headers, 'config.update', { patch: { trimWindowMessages: 99 }, expectedRevision: 0 })).statusCode).toBe(409)
+    expect(await read()).toMatchObject({ trimWindowMessages: 19 })
+    expect(register).not.toHaveBeenCalled()
+  })
+
+  it.each(['deepseek-v4-flash', 'deepseek-flash'])('uses the served %s id for answer, compression and title', async (id) => {
+    const stream = vi.fn(async function* (_options: { model: string }) { yield { type: 'text-delta', index: 0, text: 'topic' } })
+    const call = mount({
+      llm: { listModels: async () => [{ id }], stream },
+      sessionQuery: { readSurface: async () => ({ capturedThroughSeq: 4, events: [
+        { type: 'user/message', data: { content: [{ type: 'text', text: 'one' }] } },
+        { type: 'user/message', data: { content: [{ type: 'text', text: 'two' }] } },
+        { type: 'user/message', data: { content: [{ type: 'text', text: 'three' }] } },
+      ] }) },
+    })
+    expect(JSON.parse((await call(headers)).body).value.answerModel).toBe(id)
+    // Stored settings remain exactly as configured; alias resolution is runtime-only.
+    expect(JSON.parse((await call(headers, 'config.get')).body).value.value.answerModel).toBe('deepseek-v4-flash')
+    await call(headers, 'title', { provider: 'deepseek-official', text: 'question and answer' })
+    expect(stream.mock.calls.at(-1)?.[0]).toMatchObject({ model: id })
+    stream.mockClear()
+    await call(headers, 'context', { mainSessionId: 'parent', provider: 'deepseek-official' })
+    expect(stream.mock.calls.at(-1)?.[0]).toMatchObject({ model: id })
+  })
+})
+
 /** Build the minimal host context `apply` needs, and capture its one route. */
-function mount(faces: HostFaces): (headers: Record<string, string>) => Promise<FakeResponse> {
+function mount(faces: HostFaces): (headers: Record<string, string>, method?: string, payload?: object) => Promise<FakeResponse> {
   let handler: ((req: unknown, res: unknown) => Promise<void>) | undefined
   const ctx = {
     get: (name: string) => {
@@ -66,18 +125,21 @@ function mount(faces: HostFaces): (headers: Record<string, string>) => Promise<F
       host: faces.host,
       protocol: faces.protocol,
     },
-    inject: () => {},
+    inject: (_names: string[], callback: (ctx: unknown) => void) => {
+      if (faces.settings !== undefined) callback(ctx)
+    },
+    settings: faces.settings,
     effect: (fn: () => () => void) => fn(),
-    llm: {},
-    sessionQuery: {},
-    fiber: {},
+    llm: faces.llm ?? {},
+    sessionQuery: faces.sessionQuery ?? {},
+    fiber: { entry: { options: { id: 'sidebar-qa' } } },
   } as unknown as Context
 
-  apply(ctx)
-  return async (headers) => {
+  apply(ctx, faces.config)
+  return async (headers, method, payload) => {
     if (handler === undefined) throw new Error('the plugin mounted no /sidebarqa/api route')
     const response = fakeResponse()
-    await handler(fakeRequest(headers), response)
+    await handler(fakeRequest(headers, method, payload), response)
     return response
   }
 }

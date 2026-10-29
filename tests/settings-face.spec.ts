@@ -163,6 +163,31 @@ describe('openSettingsSeam — the legacy namespace path (<= 0.1.6)', () => {
 })
 
 describe('openSettingsSeam — the profile-entry path (>= 0.1.7, issue #21)', () => {
+  it('prefers entry forms when a host also retains legacy register (#23)', async () => {
+    const register = vi.fn(() => { throw new Error('must not create a legacy namespace') })
+    const update = vi.fn(async () => undefined)
+    const service = {
+      ...formsLike([{ ns: ENTRY, value: { answerModel: 'custom' }, revision: 4 }]),
+      register,
+      update,
+    }
+    const seam = openSettingsSeam(service, NS, SCHEMA, ENTRY)
+    expect(seam).toMatchObject({ ok: true, kind: 'entry' })
+    if (!seam.ok) throw new Error('expected an opened seam')
+    expect(seam.face.get()).toEqual({ value: { answerModel: 'custom' }, revision: 4 })
+    await seam.face.update({ answerModel: 'new' }, 4)
+    expect(update).toHaveBeenCalledWith(ENTRY, { answerModel: 'new' }, 4)
+    expect(register).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back to legacy storage while the entry is activating or missing', () => {
+    const register = vi.fn()
+    const service = { ...formsLike(), register }
+    expect(openSettingsSeam(service, NS, SCHEMA, ENTRY)).toMatchObject({ ok: true, kind: 'entry' })
+    expect(openSettingsSeam(service, NS, SCHEMA)).toEqual({ ok: false, reason: 'no-entry' })
+    expect(register).not.toHaveBeenCalled()
+  })
+
   it('opens the form addressed by the plugin ENTRY ID, not by the namespace', async () => {
     let value: Record<string, unknown> = { summarizeModel: 'flash' }
     let revision = 0

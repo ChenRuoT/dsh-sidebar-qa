@@ -131,7 +131,9 @@ Configuration goes through DSH's settings service: the plugin exports its own `C
 >   ```
 > - **Older DSH (`dsh-settings` ≤ `0.1.6`)**: still the `sidebarqa` namespace in `settings.yaml`, exactly as in 1.1.0.
 >
-> The two shapes are chosen **by structure** in `src/settings-face.ts` (is `register` there at all?); when a host has neither, a write answers 503 with copy that names the actual reason (`no-entry`: the host edits configuration by entry id but this plugin cannot name its own row; `no-form`: neither shape exists). Follow-ups are unaffected either way.
+> The two shapes are chosen **by structure** in `src/settings-face.ts`: entry forms (`configure` + `describe/update`) take precedence even when legacy `register` also exists; namespace registration is the fallback. When a host has neither, a write answers 503 with copy that names the actual reason (`no-entry`: the host edits configuration by entry id but this plugin cannot name its own row; `no-form`: neither shape exists). Follow-ups are unaffected either way.
+>
+> Answer, summary and title calls resolve `deepseek-v4-flash` / `deepseek-flash` against the provider catalog only when the configured id is missing and the alternate exists. Stored settings and custom model ids are preserved.
 
 The table below lists the 8 commonly edited keys (the `Config` schema has 12 fields; the 4 compression/title internals are described below). In the panel you can edit those fields row by row — text rows commit on blur/Enter, number rows clamp to their range, and writes go through `/sidebarqa/api/config.update` with a revision optimistic lock (a conflict across windows prompts a retry); the answer/summary channel and model rows are dropdowns fed from the channels configured at runtime. Hand-editing the YAML / that profile row is exactly equivalent.
 

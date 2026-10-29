@@ -26,7 +26,7 @@
 - **🪆 嵌套追问**：在追问对话里再划选提问，生成子追问，层层嵌套
 - **🗂️ 追问记录**：按根（主）会话分层树展示；限定当前工作区；节点可折叠、显示最近访问时间；点击跳转后追问记录 tab 保持开启；已归档/已删除的追问**置灰标记状态**，可一键从记录中移除（连同整棵子树清理映射，不影响 DSH 侧会话）
 - **🏷️ 两段式命名**：划选首行占位命名 → 首次回答完成后基于「问题 + 回答」自动提炼 ≤15 字最终标题
-- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调——入口是 **DSH 设置页 → 左侧导航「追问」**（面板注册为 `settings.section`）；同一份配置也可以直接写进插件自己的 profile 行（`cordis.patch.yml` 里 `id: sidebar-qa` 的 `config:`），两条路写的是同一份配置
+- **⚙️ 可配置**：摘要/回答模型渠道、思考模式、上下文窗口与预算全部可调——入口是 **DSH 设置页 → 左侧导航「追问」**（面板注册为 `settings.section`）；同一份配置也可以直接写进插件自己的 profile 行（`cordis.patch.yml` 里 `id: sidebar-qa` 的 `config:`），条目表单宿主上两条路写的是同一份配置（legacy 宿主仍读写 `sidebarqa` 命名空间）
 - **🌏 中英双语**：界面文案与模型侧提示词跟随 DSH 语言设置实时切换（无需刷新，**包括已打开 tab 的标题**）；**回答语言跟随你提问/划选的内容**，不被界面语言绑架
 
 > 🔌 **只注册进 DSH 自带右侧栏**：DSH **0.1.5-alpha.1 及以上**自带右侧栏（`@deepseek-ai/dsh-client-ui-sidebar-right`），本插件直接注册进它（`ctx.sidebarRightTabs` / `ctx.sidebarRight` 服务 + `sidebar.right.pane.tab` 与 `sidebar.right.pane.tab.title` 席位），**无任何额外依赖**。`dsh-better-sidebar` 兼容已在 1.0.0 彻底移除。更早的 DSH 上插件**仍然激活**：划选浮层与「添加到对话」照常可用，只是不注册侧边栏 tab（并记一条 `console.warn`）。
@@ -131,7 +131,9 @@ dsh plugin --profile web add <本仓库路径>
 >   ```
 > - **更早的 DSH（`dsh-settings` ≤ `0.1.6`）**：仍走 `settings.yaml` 的 `sidebarqa` 命名空间，行为与 1.1.0 一致。
 >
-> 两种形态由 `src/settings-face.ts` **结构探测**（有没有 `register`）互斥选择；宿主两个都没有时写入会返回 503，并**按原因给出具体文案**（`no-entry`：宿主按条目 id 编辑配置、但本插件认不出自己的行；`no-form`：两形都没有）——追问功能不受影响。
+> 两种形态由 `src/settings-face.ts` **结构探测**（优先 `configure` + `describe/update` 的条目表单能力，再回退 legacy `register`）互斥选择；宿主两个都没有时写入会返回 503，并**按原因给出具体文案**（`no-entry`：宿主按条目 id 编辑配置、但本插件认不出自己的行；`no-form`：两形都没有）——追问功能不受影响。
+> Flash 模型名按运行期目录兼容：仅当所配名称不存在且另一名称已公布时，在 `deepseek-v4-flash` / `deepseek-flash` 之间切换，适用于回答、摘要和标题。不改写保存值，保留已有目录项与自定义模型。
+
 
 下表是可逐项编辑的 8 个常用键（`Config` schema 共 12 个字段，压缩/标题的 4 个内部参数见下方说明）。面板里逐项编辑这些字段——文本行 blur/Enter 提交，数字行按区间钳制，写入经 `/sidebarqa/api/config.update` 带 revision 乐观锁（多窗口冲突时提示重试），回答/摘要的模型渠道与模型为下拉框（选项来自运行时已配置的渠道）；直接手写 YAML / 该 profile 行也完全等效。
 

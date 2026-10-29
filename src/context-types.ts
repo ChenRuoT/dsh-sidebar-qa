@@ -196,15 +196,16 @@ export interface SidebarqaSettingsDescriptor {
  *
  * Upstream: `packages/settings/settings/src/index.ts`. `dsh-settings@0.1.5-rc.2`
  * (`SettingsProvider`) has `register(ns, schema)` + `describe` + `update(ns, …)`;
- * `dsh-settings@0.1.7-alpha.1+` (`SettingsForms`) has **no `register`** and adds
+ * `dsh-settings@0.1.7-alpha.1+` (`SettingsForms`) adds
  * `configure` / `replace` / `mutate`, with `describe` / `update` addressing a
  * profile ENTRY ID instead of a plugin-declared namespace. Neither the
  * `register` call nor the `update` key may be assumed: the host half probes for
  * each method by structure and keys the form on the shape it finds
- * (`src/settings-face.ts`, issues #19 and #21).
+ * (`src/settings-face.ts`, issues #19, #21 and #23). Instance policy via
+ * configure identifies forms even when a deployment retains legacy register.
  */
 export interface SidebarqaSettingsService {
-  /** Legacy namespace registration (`SettingsProvider`); absent on 0.1.7+. */
+  /** Legacy namespace registration; its presence alone does not imply namespace writes. */
   register?<T>(ns: string, schema: unknown, options?: object): SidebarqaSettingsScope<T>
   /**
    * Page policy for this plugin instance (`SettingsForms`; absent on <= 0.1.6).

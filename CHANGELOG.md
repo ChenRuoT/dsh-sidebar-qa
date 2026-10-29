@@ -2,6 +2,14 @@
 
 本项目的版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，日志格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.2] - 2026-10-29
+
+### Fixed
+
+- **issue #23：配置接缝优先识别条目表单能力**（host 半，需重启 `dsh web` / 桌面应用）：`configure` + `describe/update` 存在时按本插件 profile 行 id 读写，即使宿主仍保留 legacy `register`；不再让命名空间分支覆盖 volatile 配置读源。缺少条目 id 时明确拒绝，不回退写入另一份存储。旧命名空间宿主继续沿用原路径。
+- **Flash 模型目录兼容**（host 半）：回答配置、摘要与标题调用在使用时查 provider 目录；仅当所配名称缺失、另一名称确实存在时，兼容 `deepseek-v4-flash` / `deepseek-flash`。保留已有条目、自定义模型及保存值；目录查询失败或无匹配时保留原值。
+- 补充混合 settings API、配置读取/保存/冲突与新旧模型目录回归；31 文件 / 455 用例通过。真实 settings 产物验证与桌面验收边界见 [issue #23 验证记录](docs/issue-23-verification.md)。
+
 ## [1.2.1] - 2026-10-19
 
 **修 DSH 0.2.1 平台上的两个 P0：`/sidebarqa/api` 信任围栏退化（LAN / `--trusted-host` 恒 403），以及追问面板不再流式、轮次失败没有任何提示。同时把类型桩升到 `0.2.1-rc.2`、装载闸测试改成「0.2.0 peer / 0.2.1+ engines」两代语义。**
